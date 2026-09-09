@@ -1,6 +1,6 @@
 # Copiloto Operacional AI — Tech4Change Grupo 26
 
-MVP de uma camada de inteligência sobre telemetria industrial. A solução recebe telemetria em um contrato normalizado, aprende o comportamento histórico dos ativos, identifica desvios estatísticos, usa um detector multivariado como segunda opinião e transforma sinais técnicos em explicações e recomendações para operadores e gestores.
+MVP de uma camada de inteligência sobre telemetria industrial. A solução recebe dados de fontes diferentes, normaliza tudo em um contrato interno comum, aprende o comportamento histórico dos ativos, identifica desvios estatísticos, usa Isolation Forest como segunda opinião e transforma sinais técnicos em explicações e recomendações para operadores e gestores.
 
 > **A máquina gera os dados. A IA encontra o padrão. O ser humano decide.**
 
@@ -15,11 +15,37 @@ Frotas e equipamentos conectados geram muitos dados, mas dashboards tradicionais
 
 O MVP demonstra *human augmentation*: a inteligência organiza evidências e hipóteses sem automatizar decisões disciplinares ou técnicas críticas.
 
+## Arquitetura atual
+
+```text
+CSV normalizado ───────────────┐
+                              │
+Konecranes mock provider ─────┼→ Adapter → HistoricalShiftRecord[]
+                              │
+Futuros fornecedores ─────────┘
+                                      ↓
+                           telemetry-shift-v1
+                                      ↓
+                           Baseline + z-score
+                                      ↓
+                             Isolation Forest
+                                      ↓
+                             Fusão de evidência
+                                      ↓
+                         Insight + recomendação
+                                      ↓
+                           Gestor / Operador
+```
+
+A parte importante é que **o motor não conhece Konecranes, CSV ou qualquer outro fornecedor**. Cada integração termina no mesmo tipo normalizado e a partir daí o pipeline é único.
+
 ## Caso demonstrativo
 
-Usamos empilhadeiras como cenário e conceitos de telemetria publicamente documentados pela Konecranes TRUCONNECT. Os valores do dataset de demonstração são **100% sintéticos** e o schema é **normalizado pelo MVP**; ele não deve ser apresentado como payload literal da API de qualquer fabricante.
+Usamos empilhadeiras como cenário e conceitos de telemetria publicamente documentados pela Konecranes TRUCONNECT. Os valores do dataset são **100% sintéticos**.
 
-Sinais utilizados:
+O contrato `konecranes-truconnect-mock-v1` criado neste repositório é **nosso contrato de demonstração inspirado em conceitos públicos**. Ele **não é** e não deve ser apresentado como payload literal ou contrato proprietário oficial da Konecranes.
+
+Sinais usados pelo motor:
 
 - consumo de combustível;
 - tempo em marcha lenta;
@@ -31,77 +57,40 @@ Sinais utilizados:
 - contador de manutenção;
 - ativo, turno e associação opcional ao operador.
 
-## Vertical slice atual
+## Fonte 1 — CSV normalizado
 
-```text
-CSV / fonte externa
-       ↓
-Telemetry Adapter
-       ↓
-Contrato telemetry-shift-v1
-       ↓
-Validação de schema, tipos, ranges e duplicidade
-       ↓
-HistoricalShiftRecord[]
-       ↓
-Baseline + z-score ───────────────┐
-       ↓                          │
-Detecção explicável               ├→ Fusão → Insight
-                                  │
-Isolation Forest multivariado ────┘
-       ↓
-Ranking + evidências + recomendação
-       ↓
-Visão Gestor / Visão Operador
-```
+A demo padrão lê `data/telemetry-demo.csv`, com **720 turnos históricos**: 8 ativos × 3 turnos × 30 dias.
 
-A demo agora lê **`data/telemetry-demo.csv`**. O arquivo contém **720 turnos históricos**: 8 ativos × 3 turnos × 30 dias. O motor não precisa gerar esses 720 registros em runtime para executar a demonstração.
+### Contrato `telemetry-shift-v1`
 
-## Contrato normalizado — `telemetry-shift-v1`
-
-O adapter aceita CSV UTF-8 com o cabeçalho exato:
+Cabeçalho obrigatório:
 
 ```csv
 date,asset_id,operator_id,shift,fuel_liters,idle_pct,empty_travel_pct,avg_speed_kmh,max_coolant_c,shocks,overloads,maintenance_hours_remaining
 ```
 
-### Regras principais
+Regras principais:
 
 - `date`: `YYYY-MM-DD`;
 - `asset_id`: obrigatório;
-- `operator_id`: pode ficar vazio; o adapter normaliza como `UNASSIGNED`;
+- `operator_id`: opcional; vazio vira `UNASSIGNED`;
 - `shift`: `A`, `B` ou `C`;
 - percentuais: `0..100`;
-- métricas numéricas: precisam ser finitas e respeitar ranges de segurança do contrato;
 - `shocks` e `overloads`: inteiros não negativos;
-- não pode existir mais de um registro para `date + asset_id + shift`;
-- limite atual de ingestão: 2 MB e 50.000 linhas.
+- não pode existir duplicidade de `date + asset_id + shift`;
+- limite atual: 2 MB e 50.000 linhas.
 
-Erros de contrato retornam HTTP **422** com a linha, campo e motivo da falha. O parser limita a resposta aos primeiros 20 problemas para evitar payloads excessivos.
+Erros de contrato retornam HTTP **422**.
 
-## API do MVP
+### API
 
-### `GET /api/telemetry`
+`GET /api/telemetry`
 
-Lê `data/telemetry-demo.csv`, valida o contrato e executa o pipeline completo.
+Lê o CSV demo e executa o pipeline completo.
 
-A resposta inclui:
+`POST /api/telemetry`
 
-- origem e versão do schema;
-- quantidade de linhas, ativos e operadores ingeridos;
-- período do dataset;
-- metadados da análise estatística;
-- metadados do Isolation Forest;
-- pesos da fusão;
-- frota e status calculado;
-- insights ordenados;
-- evidências estatísticas e multivariadas.
-
-### `POST /api/telemetry`
-
-Aceita um dataset externo com `Content-Type: text/csv` ou `application/csv`.
-
-Exemplo:
+Aceita `text/csv` ou `application/csv`:
 
 ```bash
 curl -X POST http://localhost:3000/api/telemetry \
@@ -109,17 +98,89 @@ curl -X POST http://localhost:3000/api/telemetry \
   --data-binary @data/telemetry-demo.csv
 ```
 
-O CSV passa pelo **mesmo adapter e pelo mesmo motor** da demo. Isso cria o ponto de entrada para futuros adapters de Konecranes, Toyota, Hyster, Yale, Jungheinrich, banco de dados ou streaming: cada integração precisa apenas converter sua origem para `telemetry-shift-v1`.
+## Fonte 2 — adapter Konecranes mock
+
+Endpoint:
+
+`POST /api/telemetry/providers/konecranes`
+
+Aceita `application/json` no contrato interno de demonstração `konecranes-truconnect-mock-v1`.
+
+Exemplo mínimo em `docs/examples/konecranes-truconnect-mock.sample.json`:
+
+```json
+{
+  "contractVersion": "konecranes-truconnect-mock-v1",
+  "provider": "konecranes",
+  "sourceSystem": "truconnect-mock",
+  "assets": [
+    {
+      "assetId": "FLT-017",
+      "capacityTonnes": 16,
+      "measurements": [
+        {
+          "periodStart": "2026-09-02T16:00:00Z",
+          "shiftCode": "C",
+          "operatorRef": "OP-042",
+          "fuelConsumedLiters": 65.4,
+          "idleRatio": 0.34,
+          "emptyTravelRatio": 0.52,
+          "averageTravelSpeedKmh": 12.1,
+          "maxEngineCoolantC": 87.6,
+          "shockEvents": 0,
+          "overloadEvents": 0,
+          "maintenanceHoursRemaining": 118.5
+        }
+      ]
+    }
+  ]
+}
+```
+
+O adapter converte esse formato para `telemetry-shift-v1`/`HistoricalShiftRecord[]` antes que qualquer dado alcance o motor de análise.
+
+Mapeamento principal:
+
+| Provider mock | Normalizado |
+|---|---|
+| `periodStart` | `date` |
+| `assetId` | `assetId` |
+| `operatorRef` | `operatorId` |
+| `shiftCode` | `shift` |
+| `fuelConsumedLiters` | `fuelLiters` |
+| `idleRatio` | `idlePct` |
+| `emptyTravelRatio` | `emptyTravelPct` |
+| `averageTravelSpeedKmh` | `avgSpeedKmh` |
+| `maxEngineCoolantC` | `maxCoolantC` |
+| `shockEvents` | `shocks` |
+| `overloadEvents` | `overloads` |
+| `maintenanceHoursRemaining` | `maintenanceHoursRemaining` |
+
+Além dos registros, o adapter preserva metadados como capacidade do ativo para a camada de apresentação.
+
+## Pipeline compartilhado
+
+`lib/telemetryPipeline.ts` concentra o processamento comum. Tanto o CSV quanto o provider adapter chamam exatamente a mesma função:
+
+```text
+HistoricalShiftRecord[]
+        ↓
+analyzeHistoricalTelemetry()
+        ↓
+fuseWithIsolationForest()
+        ↓
+frota + resumo + insights
+```
+
+Essa separação é o que permite adicionar Toyota, Hyster, Yale, Jungheinrich ou outra origem sem reescrever o motor.
 
 ## Camada 1 — baseline e z-score
 
-Para cada turno avaliado, o motor procura registros históricos do **mesmo ativo e do mesmo turno**, usa até 21 amostras anteriores e calcula:
+Para cada turno avaliado, o motor procura registros históricos do **mesmo ativo e mesmo turno**, usa até 21 amostras anteriores e calcula:
 
 ```text
 z-score = (valor atual - média histórica) / desvio padrão
 ```
-
-A janela de avaliação é separada da janela usada para formar o baseline. Isso evita que uma anomalia persistente contamine rapidamente o comportamento considerado normal.
 
 O z-score responde:
 
@@ -127,28 +188,30 @@ O z-score responde:
 
 ## Camada 2 — Isolation Forest
 
-O MVP implementa um **Isolation Forest determinístico** em TypeScript, sem dependência externa de ML.
+O MVP implementa um **Isolation Forest determinístico** em TypeScript.
 
-Para cada insight estatístico elegível:
+Ele avalia simultaneamente:
 
-1. seleciona turnos históricos comparáveis do mesmo ativo + turno;
-2. usa combustível, idle, deslocamento vazio, velocidade, temperatura, impactos e sobrecarga como vetor;
-3. constrói 96 árvores de isolamento com subamostras de até 16 turnos;
-4. calcula o anomaly score;
-5. compara esse score com os próprios turnos históricos e gera um **percentil de raridade**.
+- combustível;
+- idle;
+- deslocamento vazio;
+- velocidade;
+- temperatura;
+- impactos;
+- sobrecarga.
 
 O Isolation Forest responde:
 
-> **Essa combinação inteira de comportamento também é rara no histórico?**
+> **Essa combinação inteira também é rara no histórico?**
 
-## Fusão dos detectores
+## Fusão
 
 O score exibido combina:
 
 - **80%** camada estatística explicável;
 - **20%** suporte multivariado do Isolation Forest.
 
-A manutenção programada permanece fora dessa fusão: o contador de manutenção é uma regra operacional explícita e não é apresentado como previsão de falha por ML.
+Manutenção programada permanece uma regra operacional explícita e não é apresentada como previsão de falha por ML.
 
 ## Cenários detectados na demo
 
@@ -157,23 +220,6 @@ A manutenção programada permanece fora dessa fusão: o contador de manutençã
 3. **FLT-031 / OP-007 — impactos:** impactos e velocidade fogem do histórico comparável.
 4. **FLT-012 / OP-015 — sobrecarga:** eventos de sobrecarga fora do comportamento normal.
 5. **FLT-044 — manutenção:** contador entra na janela de planejamento.
-
-## Auditabilidade
-
-Cada insight pode mostrar:
-
-- valor atual;
-- média e desvio padrão aprendidos;
-- z-score em σ;
-- quantidade de amostras usadas;
-- score do Isolation Forest;
-- percentil multivariado;
-- nível de concordância;
-- score final;
-- causa provável;
-- recomendação sujeita à validação humana.
-
-Assim o sistema consegue responder tanto **“qual dado desviou?”** quanto **“o padrão completo também é estranho?”**.
 
 ## Validação contínua
 
@@ -184,20 +230,29 @@ npm install
 npm audit --audit-level=high
 npm run build
 npm run start
+        ↓
 GET /api/telemetry
-  ↓
-valida schema telemetry-shift-v1 + 720 linhas + motor híbrido
-  ↓
-POST /api/telemetry com o CSV normalizado
-  ↓
-valida resposta externa e insights
-  ↓
-POST de CSV inválido
-  ↓
-exige HTTP 422
+        ↓
+valida CSV + 720 registros + motor híbrido
+        ↓
+POST /api/telemetry
+        ↓
+valida ingestão CSV externa
+        ↓
+converte o CSV para o contrato Konecranes mock
+        ↓
+POST /api/telemetry/providers/konecranes
+        ↓
+valida 720 registros normalizados
+        ↓
+compara os IDs dos insights com a análise via CSV
+        ↓
+exige os mesmos resultados do mesmo motor
 ```
 
-O PR falha se houver vulnerabilidade `high/critical`, erro de build, falha de leitura do CSV, alteração indevida no número de registros, quebra do motor estatístico/ML ou ausência da validação de contrato.
+O CI também testa payloads inválidos e exige HTTP **422**.
+
+Essa comparação de resultados é a principal prova de desacoplamento: **duas fontes diferentes precisam produzir os mesmos insights quando representam os mesmos dados**.
 
 ## Executar localmente
 
@@ -210,47 +265,31 @@ Abra `http://localhost:3000`.
 
 O slice de telemetria não exige chave de API.
 
-## Arquitetura alvo
-
-```text
-Konecranes / Toyota / Hyster / Yale / Jungheinrich / outros
-                           ↓
-                   Adapter do fornecedor
-                           ↓
-                    telemetry-shift-v1
-                           ↓
-             Baseline + z-score + Isolation Forest
-                           ↓
-                      Insight Engine
-                           ↓
-               IA generativa explicativa
-                           ↓
-                Operador + Gestor + CMMS
-```
-
 ## Evolução
 
 Concluído:
 
-- [x] dataset sintético de 30 dias versionado em CSV;
+- [x] dataset sintético de 30 dias em CSV;
 - [x] contrato normalizado `telemetry-shift-v1`;
-- [x] parser e validação de CSV;
-- [x] ingestão do CSV demo via filesystem;
-- [x] ingestão de CSV externo via `POST /api/telemetry`;
-- [x] baseline automático por ativo/turno;
-- [x] z-score por métrica;
-- [x] Isolation Forest multivariado;
-- [x] percentil de raridade;
+- [x] adapter CSV;
+- [x] ingestão externa por CSV;
+- [x] pipeline comum independente da fonte;
+- [x] adapter Konecranes mock;
+- [x] preservação de metadados de ativos;
+- [x] baseline automático;
+- [x] z-score;
+- [x] Isolation Forest;
 - [x] fusão estatística + ML;
-- [x] security gate + build + smoke test no CI.
+- [x] teste de equivalência CSV × provider adapter no CI;
+- [x] security gate + build + smoke test.
 
 Próximos passos:
 
-1. remover o gerador legado que permaneceu apenas como código de apoio e consolidar fixtures no CSV;
-2. criar um adapter de fornecedor real ou mock de API usando o mesmo contrato;
-3. usar modelo generativo somente para transformar evidências estruturadas em explicação clara;
-4. adicionar feedback pós-recomendação para medir evolução do operador;
-5. integrar uma fonte real de telemetria quando credenciais/dados estiverem disponíveis.
+1. remover definitivamente o gerador legado de telemetria que não participa mais do runtime;
+2. aproximar o adapter de uma integração real quando houver acesso ao contrato/credenciais do fornecedor;
+3. adicionar uma camada de IA generativa somente para explicar evidências estruturadas;
+4. adicionar feedback pós-recomendação para medir evolução;
+5. integrar persistência/banco ou streaming em vez de processar todo o histórico por request.
 
 ## Guardrails
 
@@ -262,7 +301,8 @@ Próximos passos:
 - `operator_id` pode depender de integração externa;
 - sinais disponíveis variam conforme equipamento, configuração e assinatura do provedor;
 - o baseline não deve incorporar automaticamente períodos suspeitos sem validação;
-- datasets externos precisam passar pelo contrato antes de alimentar o motor.
+- payloads de fornecedor só alimentam o motor depois da normalização e validação;
+- `konecranes-truconnect-mock-v1` é contrato de demonstração do projeto, não contrato proprietário oficial.
 
 ## Referências públicas usadas na modelagem
 
