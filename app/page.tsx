@@ -18,6 +18,7 @@ import {
   Sparkles,
   Wrench
 } from "lucide-react";
+import { GenerativeExplanation } from "@/components/GenerativeExplanation";
 import type { EnrichedInsight, MultivariateAgreement } from "@/lib/isolationForest";
 import type { InsightCategory } from "@/lib/telemetry";
 
@@ -240,6 +241,8 @@ export default function Home() {
                   </div>
                   <div className="scoreRing"><strong>{selected.score}</strong><span>fusion</span></div>
                 </div>
+
+                <GenerativeExplanation insightId={selected.id} />
 
                 <article className="aiConclusion">
                   <div className="aiTitle"><BrainCircuit size={20} /> <strong>Leitura estatística explicável</strong></div>
