@@ -172,6 +172,8 @@ fuseWithIsolationForest()
 frota + resumo + insights
 ```
 
+O core analítico não possui mais gerador implícito de telemetria: `analyzeHistoricalTelemetry()` exige histórico fornecido por uma fonte já ingerida e validada.
+
 Essa separação é o que permite adicionar Toyota, Hyster, Yale, Jungheinrich ou outra origem sem reescrever o motor.
 
 ## Camada 1 — baseline e z-score
@@ -276,6 +278,7 @@ Concluído:
 - [x] pipeline comum independente da fonte;
 - [x] adapter Konecranes mock;
 - [x] preservação de metadados de ativos;
+- [x] remoção do gerador legado do core analítico;
 - [x] baseline automático;
 - [x] z-score;
 - [x] Isolation Forest;
@@ -285,11 +288,10 @@ Concluído:
 
 Próximos passos:
 
-1. remover definitivamente o gerador legado de telemetria que não participa mais do runtime;
+1. adicionar uma camada de IA generativa somente para explicar evidências estruturadas, com fallback determinístico;
 2. aproximar o adapter de uma integração real quando houver acesso ao contrato/credenciais do fornecedor;
-3. adicionar uma camada de IA generativa somente para explicar evidências estruturadas;
-4. adicionar feedback pós-recomendação para medir evolução;
-5. integrar persistência/banco ou streaming em vez de processar todo o histórico por request.
+3. adicionar feedback pós-recomendação para medir evolução;
+4. integrar persistência/banco ou streaming em vez de processar todo o histórico por request.
 
 ## Guardrails
 
