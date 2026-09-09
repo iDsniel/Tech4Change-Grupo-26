@@ -24,6 +24,15 @@ type ApiPayload = {
   mode: string;
   generatedAt: string;
   source: { type: string; vendorReference: string; disclaimer: string };
+  analysis: {
+    method: string;
+    historyDays: number;
+    lookbackDays: number;
+    minBaselineSamples: number;
+    evaluationStart: string;
+    recordsAnalyzed: number;
+    candidateEvents: number;
+  };
   fleet: Array<{ assetId: string; capacity: string; status: string }>;
   summary: {
     assets: number;
@@ -85,6 +94,9 @@ export default function Home() {
     return data.insights.find((item) => item.id === selectedId) ?? filtered[0] ?? data.insights[0];
   }, [data, filtered, selectedId]);
 
+  const operatorInsight = data?.insights.find((item) => item.operatorId === "OP-042");
+  const operatorIdle = operatorInsight?.analysis?.statisticalEvidence.find((item) => item.metric === "idlePct");
+
   if (error) {
     return (
       <main className="loadingPage">
@@ -99,8 +111,8 @@ export default function Home() {
     return (
       <main className="loadingPage">
         <BrainCircuit className="pulse" size={34} />
-        <h1>Analisando telemetria…</h1>
-        <p>Comparando ativos, turnos e padrões operacionais.</p>
+        <h1>Aprendendo o comportamento da frota…</h1>
+        <p>Calculando baselines por ativo e turno antes de procurar desvios.</p>
       </main>
     );
   }
@@ -114,7 +126,7 @@ export default function Home() {
           <p>A máquina gera dados. A IA encontra o padrão. O ser humano decide.</p>
         </div>
         <div className="heroActions">
-          <div className="live"><span /> telemetria conectada</div>
+          <div className="live"><span /> baseline estatístico ativo</div>
           <div className="viewToggle" aria-label="Alternar visão">
             <button className={view === "manager" ? "active" : ""} onClick={() => setView("manager")}>Gestor</button>
             <button className={view === "operator" ? "active" : ""} onClick={() => setView("operator")}>Operador</button>
@@ -126,7 +138,7 @@ export default function Home() {
         <ShieldCheck size={19} />
         <div>
           <strong>IA como copiloto, não como juiz.</strong>
-          <span>Os alertas mostram evidências e hipóteses. A decisão final continua humana.</span>
+          <span>Cada alerta compara o turno com o histórico da mesma máquina e turno, mostra o desvio estatístico e mantém a decisão final humana.</span>
         </div>
       </section>
 
@@ -147,7 +159,7 @@ export default function Home() {
             </article>
             <article className="kpiCard">
               <div className="kpiIcon"><Leaf size={20} /></div>
-              <div><span>Foco do copiloto</span><strong>4 frentes</strong><small>eficiência · segurança · máquina · manutenção</small></div>
+              <div><span>Histórico aprendido</span><strong>{data.analysis.historyDays} dias</strong><small>{data.analysis.recordsAnalyzed} turnos sintéticos analisados</small></div>
             </article>
           </section>
 
@@ -206,11 +218,14 @@ export default function Home() {
                 <article className="aiConclusion">
                   <div className="aiTitle"><BrainCircuit size={20} /> <strong>Leitura do copiloto</strong></div>
                   <p>{selected.probableCause}</p>
+                  {selected.analysis && (
+                    <small>Baseline automático: {selected.analysis.baselineSamples} turnos comparáveis · maior desvio {selected.analysis.maxAbsZ}σ · janela {selected.analysis.period}</small>
+                  )}
                 </article>
 
                 <div className="detailGrid">
                   <article className="detailCard">
-                    <div className="cardTitle"><Activity size={18} /> Evidências</div>
+                    <div className="cardTitle"><Activity size={18} /> Evidências estatísticas</div>
                     <ul>
                       {selected.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}
                     </ul>
@@ -227,7 +242,7 @@ export default function Home() {
                   <article className="impactCard">
                     <Fuel size={21} />
                     <div><span>Oportunidade estimada</span><strong>{selected.potentialSavingsLitersPerShift} L de combustível / turno</strong></div>
-                    <small>Estimativa calculada pela diferença para o baseline sintético do ativo.</small>
+                    <small>Estimativa calculada pela diferença entre o turno detectado e o baseline aprendido automaticamente.</small>
                   </article>
                 )}
               </section>
@@ -249,7 +264,11 @@ export default function Home() {
             </article>
             <article className="coachCard focus">
               <Fuel size={23} />
-              <div><span>Oportunidade</span><strong>Reduza tempo ocioso</strong><p>Seu turno teve 32% de idle contra 22% do histórico do equipamento.</p></div>
+              <div>
+                <span>Oportunidade</span>
+                <strong>Reduza tempo ocioso</strong>
+                <p>{operatorIdle ? `Seu turno chegou a ${operatorIdle.current}% de idle contra baseline de ${operatorIdle.mean}% (${operatorIdle.zScore >= 0 ? "+" : ""}${operatorIdle.zScore}σ).` : "O copiloto encontrou um desvio de tempo ocioso no seu contexto operacional."}</p>
+              </div>
             </article>
             <article className="coachCard neutral">
               <Activity size={23} />
@@ -259,7 +278,7 @@ export default function Home() {
 
           <article className="coachMessage">
             <Sparkles size={22} />
-            <div><strong>Recomendação personalizada</strong><p>{data.insights.find((item) => item.operatorId === "OP-042")?.humanMessage}</p></div>
+            <div><strong>Recomendação personalizada</strong><p>{operatorInsight?.humanMessage}</p></div>
           </article>
 
           <article className="privacyCard">
@@ -271,7 +290,7 @@ export default function Home() {
 
       <footer className="dataFooter">
         <Info size={16} />
-        <p><strong>Demo auditável:</strong> {data.source.disclaimer} Referência conceitual: {data.source.vendorReference}.</p>
+        <p><strong>Demo auditável:</strong> {data.source.disclaimer} O baseline é calculado pelo próprio MVP a partir do histórico sintético e não usa os rótulos dos cenários como entrada. Referência conceitual: {data.source.vendorReference}.</p>
       </footer>
     </main>
   );
