@@ -11,25 +11,29 @@ import {
 
 export const runtime = "nodejs";
 
+type FleetStatus = Severity | "healthy";
+type FleetAsset = { assetId: string; capacity: string; status: FleetStatus };
+
 const severityOrder: Record<Severity, number> = { critical: 3, high: 2, attention: 1 };
-const capacityByAsset = new Map(demoFleet.map((asset) => [asset.assetId, asset.capacity]));
+const capacityByAsset = new Map<string, string>(demoFleet.map((asset) => [asset.assetId, asset.capacity]));
 
 function round(value: number, digits = 1) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }
 
-function fleetFromHistory(history: HistoricalShiftRecord[], insights: EnrichedInsight[]) {
+function fleetFromHistory(history: HistoricalShiftRecord[], insights: EnrichedInsight[]): FleetAsset[] {
   return [...new Set(history.map((record) => record.assetId))]
     .sort()
     .map((assetId) => {
       const relevant = insights
         .filter((insight) => insight.assetId === assetId)
         .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity] || b.score - a.score);
+      const status: FleetStatus = relevant[0]?.severity ?? "healthy";
       return {
         assetId,
         capacity: capacityByAsset.get(assetId) ?? "n/d",
-        status: relevant[0]?.severity ?? "healthy"
+        status
       };
     });
 }
