@@ -79,20 +79,6 @@ export const demoFleet = [
   { assetId: "FLT-064", capacity: "33 t" }
 ] as const;
 
-const operatorIds = ["OP-007", "OP-015", "OP-021", "OP-028", "OP-033", "OP-042", "OP-051", "OP-063", "OP-074", "OP-088", "OP-094", "OP-105"];
-const shifts: Shift[] = ["A", "B", "C"];
-
-const assetProfiles = [
-  { assetId: "FLT-012", fuel: 56.8, idle: 21.5, empty: 42, speed: 12.0, coolant: 87.0, maintenance: 118 },
-  { assetId: "FLT-017", fuel: 55.4, idle: 22.0, empty: 43, speed: 12.1, coolant: 87.5, maintenance: 150 },
-  { assetId: "FLT-023", fuel: 61.8, idle: 22.5, empty: 41, speed: 11.7, coolant: 88.5, maintenance: 112 },
-  { assetId: "FLT-031", fuel: 73.5, idle: 21.0, empty: 39, speed: 10.9, coolant: 88.0, maintenance: 190 },
-  { assetId: "FLT-044", fuel: 72.0, idle: 22.0, empty: 40, speed: 10.7, coolant: 88.5, maintenance: 84 },
-  { assetId: "FLT-052", fuel: 60.2, idle: 23.0, empty: 42, speed: 11.5, coolant: 87.0, maintenance: 138 },
-  { assetId: "FLT-058", fuel: 54.2, idle: 20.5, empty: 41, speed: 12.3, coolant: 86.5, maintenance: 214 },
-  { assetId: "FLT-064", fuel: 86.5, idle: 22.0, empty: 38, speed: 10.1, coolant: 89.0, maintenance: 168 }
-] as const;
-
 function round(value: number, digits = 1) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
@@ -100,89 +86,6 @@ function round(value: number, digits = 1) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function isoDate(start: Date, offsetDays: number) {
-  const date = new Date(start);
-  date.setUTCDate(date.getUTCDate() + offsetDays);
-  return date.toISOString().slice(0, 10);
-}
-
-function noise(day: number, asset: number, shift: number, salt: number) {
-  const raw = Math.sin((day + 1) * 12.9898 + (asset + 3) * 78.233 + (shift + 5) * 37.719 + salt * 11.131) * 43758.5453;
-  const unit = raw - Math.floor(raw);
-  return unit * 2 - 1;
-}
-
-function operatorFor(day: number, asset: number, shift: number) {
-  return operatorIds[(day + asset * 3 + shift * 5) % operatorIds.length];
-}
-
-export function buildDemoHistory(): HistoricalShiftRecord[] {
-  const start = new Date("2026-08-11T00:00:00Z");
-  const rows: HistoricalShiftRecord[] = [];
-
-  for (let day = 0; day < 30; day += 1) {
-    const date = isoDate(start, day);
-
-    assetProfiles.forEach((profile, assetIndex) => {
-      shifts.forEach((shift, shiftIndex) => {
-        const shiftFuelFactor = [0.98, 1.03, 1.0][shiftIndex];
-        let operatorId = operatorFor(day, assetIndex, shiftIndex);
-        let fuelLiters = profile.fuel * shiftFuelFactor * (1 + noise(day, assetIndex, shiftIndex, 1) * 0.035);
-        let idlePct = profile.idle + noise(day, assetIndex, shiftIndex, 2) * 2.0;
-        let emptyTravelPct = profile.empty + noise(day, assetIndex, shiftIndex, 3) * 3.0;
-        let avgSpeedKmh = profile.speed + noise(day, assetIndex, shiftIndex, 4) * 0.8;
-        let maxCoolantC = profile.coolant + noise(day, assetIndex, shiftIndex, 5) * 2.0;
-        let shocks = 0;
-        let overloads = 0;
-        let maintenanceHoursRemaining = profile.maintenance - day * (profile.assetId === "FLT-044" ? 2.4 : 1.35) - shiftIndex * 0.25;
-
-        if (profile.assetId === "FLT-017" && shift === "C" && date >= "2026-09-02" && date <= "2026-09-05") {
-          operatorId = "OP-042";
-          fuelLiters *= 1.18;
-          idlePct += 11.5;
-          emptyTravelPct += 9.0;
-        }
-
-        if (profile.assetId === "FLT-023" && date >= "2026-09-04") {
-          const progression = Number(date.slice(-2)) - 3;
-          fuelLiters *= 1.10 + progression * 0.018;
-          maxCoolantC += 7 + progression * 2.0;
-        }
-
-        if (profile.assetId === "FLT-031" && shift === "B" && date >= "2026-08-28" && date <= "2026-09-03") {
-          operatorId = "OP-007";
-          shocks = 3 + ((day + shiftIndex) % 4);
-          avgSpeedKmh += 2.4;
-        } else if (noise(day, assetIndex, shiftIndex, 6) > 0.985) {
-          shocks = 1;
-        }
-
-        if (profile.assetId === "FLT-012" && shift === "A" && date >= "2026-09-06" && date <= "2026-09-07") {
-          operatorId = "OP-015";
-          overloads = date.endsWith("06") ? 2 : 3;
-        }
-
-        rows.push({
-          date,
-          assetId: profile.assetId,
-          operatorId,
-          shift,
-          fuelLiters: round(fuelLiters, 2),
-          idlePct: round(clamp(idlePct, 5, 60), 2),
-          emptyTravelPct: round(clamp(emptyTravelPct, 5, 80), 2),
-          avgSpeedKmh: round(clamp(avgSpeedKmh, 0, 30), 2),
-          maxCoolantC: round(maxCoolantC, 2),
-          shocks,
-          overloads,
-          maintenanceHoursRemaining: round(Math.max(0, maintenanceHoursRemaining), 2)
-        });
-      });
-    });
-  }
-
-  return rows;
 }
 
 function mean(values: number[]) {
@@ -434,7 +337,7 @@ function insightFromGroup(kind: CandidateKind, group: Candidate[]): Insight {
   };
 }
 
-export function analyzeHistoricalTelemetry(history: HistoricalShiftRecord[] = buildDemoHistory()) {
+export function analyzeHistoricalTelemetry(history: HistoricalShiftRecord[]) {
   const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date) || a.assetId.localeCompare(b.assetId) || a.shift.localeCompare(b.shift));
   const candidates: Candidate[] = [];
 
@@ -473,24 +376,4 @@ export function analyzeHistoricalTelemetry(history: HistoricalShiftRecord[] = bu
       candidateEvents: candidates.length
     }
   };
-}
-
-export function fleetSummary(insights: Insight[]) {
-  const affectedAssets = new Set(insights.map((insight) => insight.assetId));
-  return {
-    assets: demoFleet.length,
-    healthyAssets: demoFleet.length - affectedAssets.size,
-    activeInsights: insights.length,
-    criticalInsights: insights.filter((insight) => insight.severity === "critical").length,
-    potentialSavingsLitersPerShift: round(insights.reduce((total, insight) => total + (insight.potentialSavingsLitersPerShift ?? 0), 0), 1)
-  };
-}
-
-export function fleetWithStatus(insights: Insight[]) {
-  const severityOrder: Record<Severity, number> = { critical: 3, high: 2, attention: 1 };
-  return demoFleet.map((asset) => {
-    const relevant = insights.filter((insight) => insight.assetId === asset.assetId);
-    const top = relevant.sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity])[0];
-    return { ...asset, status: top?.severity ?? "healthy" };
-  });
 }
