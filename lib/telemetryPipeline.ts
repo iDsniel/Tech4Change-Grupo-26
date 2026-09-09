@@ -25,7 +25,7 @@ function round(value: number, digits = 1) {
 function fleetFromHistory(
   history: HistoricalShiftRecord[],
   insights: EnrichedInsight[],
-  assetMetadata: AssetMetadata[] = []
+  assetMetadata: readonly AssetMetadata[] = []
 ): FleetAsset[] {
   const capacityByAsset = new Map(assetMetadata.map((asset) => [asset.assetId, asset.capacity ?? "n/d"]));
 
@@ -43,7 +43,7 @@ function fleetFromHistory(
 export function runTelemetryPipeline(
   history: HistoricalShiftRecord[],
   source: TelemetrySourceDescriptor,
-  assetMetadata: AssetMetadata[] = []
+  assetMetadata: readonly AssetMetadata[] = []
 ) {
   const statistical = analyzeHistoricalTelemetry(history);
   const multivariate = fuseWithIsolationForest(history, statistical.insights, statistical.analysis);
