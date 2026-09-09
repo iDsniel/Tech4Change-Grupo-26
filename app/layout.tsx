@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MãoLivre AI | Tech4Change",
-  description: "Copiloto multimodal para profissionais de campo"
+  title: "Copiloto Operacional AI | Tech4Change",
+  description: "IA que transforma telemetria industrial em orientação para operadores e gestores"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

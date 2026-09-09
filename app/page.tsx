@@ -1,155 +1,278 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, FileText, Mic, Send, Sparkles, Upload, X, ClipboardList, ShieldCheck } from "lucide-react";
-import { sampleProcedure } from "@/lib/demo";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  BrainCircuit,
+  CheckCircle2,
+  ChevronRight,
+  CircleGauge,
+  Fuel,
+  Gauge,
+  HardHat,
+  HeartPulse,
+  Info,
+  Leaf,
+  ShieldCheck,
+  Sparkles,
+  Wrench
+} from "lucide-react";
+import type { Insight, InsightCategory } from "@/lib/telemetry";
 
-type Message = { role: "user" | "assistant"; text: string; demo?: boolean };
+type ApiPayload = {
+  mode: string;
+  generatedAt: string;
+  source: { type: string; vendorReference: string; disclaimer: string };
+  fleet: Array<{ assetId: string; capacity: string; status: string }>;
+  summary: {
+    assets: number;
+    healthyAssets: number;
+    activeInsights: number;
+    criticalInsights: number;
+    potentialSavingsLitersPerShift: number;
+  };
+  insights: Insight[];
+};
 
-declare global {
-  interface Window {
-    webkitSpeechRecognition?: any;
-    SpeechRecognition?: any;
-  }
-}
+const categoryLabel: Record<InsightCategory, string> = {
+  efficiency: "Eficiência",
+  mechanical: "Mecânica",
+  safety: "Segurança",
+  maintenance: "Manutenção"
+};
+
+const categoryIcon: Record<InsightCategory, React.ReactNode> = {
+  efficiency: <Fuel size={17} />,
+  mechanical: <HeartPulse size={17} />,
+  safety: <ShieldCheck size={17} />,
+  maintenance: <Wrench size={17} />
+};
+
+const severityLabel = {
+  attention: "Atenção",
+  high: "Alta",
+  critical: "Crítica"
+} as const;
 
 export default function Home() {
-  const [manual, setManual] = useState(sampleProcedure);
-  const [manualName, setManualName] = useState("procedimento-demo.txt");
-  const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", text: "Procedimento demo carregado. Pergunte por voz ou texto, ou envie uma foto do contexto." }
-  ]);
-  const [imageDataUrl, setImageDataUrl] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [report, setReport] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [data, setData] = useState<ApiPayload | null>(null);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [filter, setFilter] = useState<"all" | InsightCategory>("all");
+  const [view, setView] = useState<"manager" | "operator">("manager");
+  const [error, setError] = useState("");
 
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    fetch("/api/telemetry")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Falha ao carregar telemetria");
+        return response.json();
+      })
+      .then((payload: ApiPayload) => {
+        setData(payload);
+        setSelectedId(payload.insights[0]?.id);
+      })
+      .catch((cause: Error) => setError(cause.message));
+  }, []);
 
-  const canSend = useMemo(() => question.trim().length > 0 && !busy, [question, busy]);
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return filter === "all" ? data.insights : data.insights.filter((item) => item.category === filter);
+  }, [data, filter]);
 
-  async function loadManual(file?: File) {
-    if (!file) return;
-    const text = await file.text();
-    setManual(text);
-    setManualName(file.name);
-    setMessages([{ role: "assistant", text: `Procedimento “${file.name}” carregado. O que você precisa fazer?` }]);
+  const selected = useMemo(() => {
+    if (!data) return undefined;
+    return data.insights.find((item) => item.id === selectedId) ?? filtered[0] ?? data.insights[0];
+  }, [data, filtered, selectedId]);
+
+  if (error) {
+    return (
+      <main className="loadingPage">
+        <AlertTriangle size={30} />
+        <h1>Não foi possível carregar o MVP</h1>
+        <p>{error}</p>
+      </main>
+    );
   }
 
-  async function loadPhoto(file?: File) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImageDataUrl(String(reader.result));
-    reader.readAsDataURL(file);
-  }
-
-  function startVoice() {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      alert("Reconhecimento de voz não suportado neste navegador. Use o campo de texto.");
-      return;
-    }
-    const recognition = new Recognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
-    recognition.onresult = (event: any) => setQuestion(event.results[0][0].transcript);
-    recognition.start();
-  }
-
-  async function ask() {
-    const q = question.trim();
-    if (!q || busy) return;
-    setMessages((m) => [...m, { role: "user", text: q }]);
-    setQuestion("");
-    setBusy(true);
-    try {
-      const res = await fetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, manual, imageDataUrl })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha ao consultar assistente");
-      setMessages((m) => [...m, { role: "assistant", text: data.answer, demo: data.demo }]);
-    } catch (e: any) {
-      setMessages((m) => [...m, { role: "assistant", text: `Não consegui responder: ${e.message}` }]);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function generateReport() {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: messages }) });
-      const data = await res.json();
-      setReport(data.report || "");
-    } finally { setBusy(false); }
+  if (!data) {
+    return (
+      <main className="loadingPage">
+        <BrainCircuit className="pulse" size={34} />
+        <h1>Analisando telemetria…</h1>
+        <p>Comparando ativos, turnos e padrões operacionais.</p>
+      </main>
+    );
   }
 
   return (
-    <main>
-      <section className="shell">
-        <header className="topbar">
-          <div>
-            <div className="eyebrow">TECH4CHANGE 2026 · GRUPO 26</div>
-            <h1>MãoLivre <span>AI</span></h1>
-            <p>Conhecimento técnico no momento da execução.</p>
-          </div>
-          <div className="status"><span></span> copiloto ativo</div>
-        </header>
-
-        <section className="procedureCard">
-          <div className="icon"><FileText size={22} /></div>
-          <div className="grow"><strong>Procedimento ativo</strong><small>{manualName}</small></div>
-          <button className="secondary" onClick={() => fileInputRef.current?.click()}><Upload size={16}/> Trocar</button>
-          <input ref={fileInputRef} hidden type="file" accept=".txt,.md,.csv,.json" onChange={(e) => loadManual(e.target.files?.[0])}/>
-        </section>
-
-        <div className="chat" ref={scrollRef}>
-          {messages.map((m, i) => (
-            <div key={i} className={`bubble ${m.role}`}>
-              {m.role === "assistant" && <div className="aiMark"><Sparkles size={14}/> IA</div>}
-              <div>{m.text}</div>
-              {m.demo && <small className="demoTag">modo demonstração</small>}
-            </div>
-          ))}
-          {busy && <div className="bubble assistant typing">Analisando procedimento…</div>}
+    <main className="pageShell">
+      <header className="hero">
+        <div>
+          <div className="eyebrow">TECH4CHANGE 2026 · GRUPO 26</div>
+          <h1>Copiloto <span>Operacional AI</span></h1>
+          <p>A máquina gera dados. A IA encontra o padrão. O ser humano decide.</p>
         </div>
-
-        {imageDataUrl && (
-          <div className="photoPreview">
-            <img src={imageDataUrl} alt="Contexto enviado"/>
-            <div><strong>Foto anexada</strong><small>A IA usará a imagem apenas como contexto complementar.</small></div>
-            <button onClick={() => setImageDataUrl(undefined)}><X size={18}/></button>
+        <div className="heroActions">
+          <div className="live"><span /> telemetria conectada</div>
+          <div className="viewToggle" aria-label="Alternar visão">
+            <button className={view === "manager" ? "active" : ""} onClick={() => setView("manager")}>Gestor</button>
+            <button className={view === "operator" ? "active" : ""} onClick={() => setView("operator")}>Operador</button>
           </div>
-        )}
-
-        <section className="composer">
-          <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ex.: Qual é o primeiro passo?" onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }}} />
-          <div className="actions">
-            <button className={listening ? "tool listening" : "tool"} onClick={startVoice}><Mic size={20}/><span>{listening ? "Ouvindo…" : "Falar"}</span></button>
-            <button className="tool" onClick={() => photoInputRef.current?.click()}><Camera size={20}/><span>Foto</span></button>
-            <input ref={photoInputRef} hidden type="file" accept="image/*" capture="environment" onChange={(e) => loadPhoto(e.target.files?.[0])}/>
-            <button className="send" disabled={!canSend} onClick={ask}><Send size={20}/></button>
-          </div>
-        </section>
-
-        <div className="footerActions">
-          <button onClick={generateReport} disabled={busy}><ClipboardList size={18}/> Gerar relatório do atendimento</button>
         </div>
+      </header>
 
-        {report && <section className="report"><div className="reportTitle"><ClipboardList size={18}/> Relatório</div><pre>{report}</pre></section>}
-
-        <section className="guardrail"><ShieldCheck size={17}/><p>O assistente responde apenas com base no procedimento carregado. Condições não previstas devem ser escaladas ao responsável técnico.</p></section>
+      <section className="trustBanner">
+        <ShieldCheck size={19} />
+        <div>
+          <strong>IA como copiloto, não como juiz.</strong>
+          <span>Os alertas mostram evidências e hipóteses. A decisão final continua humana.</span>
+        </div>
       </section>
+
+      {view === "manager" ? (
+        <>
+          <section className="kpiGrid">
+            <article className="kpiCard">
+              <div className="kpiIcon"><Gauge size={20} /></div>
+              <div><span>Ativos monitorados</span><strong>{data.summary.assets}</strong><small>{data.summary.healthyAssets} sem desvio relevante</small></div>
+            </article>
+            <article className="kpiCard">
+              <div className="kpiIcon"><Sparkles size={20} /></div>
+              <div><span>Insights ativos</span><strong>{data.summary.activeInsights}</strong><small>{data.summary.criticalInsights} prioridade crítica</small></div>
+            </article>
+            <article className="kpiCard">
+              <div className="kpiIcon"><Fuel size={20} /></div>
+              <div><span>Economia identificada</span><strong>{data.summary.potentialSavingsLitersPerShift} L</strong><small>por turno no caso detectado</small></div>
+            </article>
+            <article className="kpiCard">
+              <div className="kpiIcon"><Leaf size={20} /></div>
+              <div><span>Foco do copiloto</span><strong>4 frentes</strong><small>eficiência · segurança · máquina · manutenção</small></div>
+            </article>
+          </section>
+
+          <section className="workspace">
+            <aside className="insightsPane">
+              <div className="sectionHeading">
+                <div><span className="sectionEyebrow">PRIORIZAÇÃO</span><h2>O que merece atenção agora</h2></div>
+                <CircleGauge size={24} />
+              </div>
+
+              <div className="filterRow">
+                <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos</button>
+                <button className={filter === "efficiency" ? "active" : ""} onClick={() => setFilter("efficiency")}>Eficiência</button>
+                <button className={filter === "safety" ? "active" : ""} onClick={() => setFilter("safety")}>Segurança</button>
+                <button className={filter === "mechanical" ? "active" : ""} onClick={() => setFilter("mechanical")}>Mecânica</button>
+                <button className={filter === "maintenance" ? "active" : ""} onClick={() => setFilter("maintenance")}>Manutenção</button>
+              </div>
+
+              <div className="insightList">
+                {filtered.map((insight) => (
+                  <button
+                    key={insight.id}
+                    className={`insightCard ${selected?.id === insight.id ? "selected" : ""}`}
+                    onClick={() => setSelectedId(insight.id)}
+                  >
+                    <div className={`severityDot ${insight.severity}`} />
+                    <div className="insightBody">
+                      <div className="insightMeta">
+                        <span className={`severityBadge ${insight.severity}`}>{severityLabel[insight.severity]}</span>
+                        <span>{categoryIcon[insight.category]} {categoryLabel[insight.category]}</span>
+                      </div>
+                      <strong>{insight.assetId} · {insight.title}</strong>
+                      <p>{insight.summary}</p>
+                      {insight.operatorId && <small>Concentração: {insight.operatorId}</small>}
+                    </div>
+                    <ChevronRight size={18} />
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            {selected && (
+              <section className="detailPane">
+                <div className="detailHeader">
+                  <div>
+                    <div className="detailBadges">
+                      <span className={`severityBadge ${selected.severity}`}>{severityLabel[selected.severity]}</span>
+                      <span className="categoryBadge">{categoryIcon[selected.category]} {categoryLabel[selected.category]}</span>
+                    </div>
+                    <h2>{selected.assetId}</h2>
+                    <p>{selected.title}</p>
+                  </div>
+                  <div className="scoreRing"><strong>{selected.score}</strong><span>score</span></div>
+                </div>
+
+                <article className="aiConclusion">
+                  <div className="aiTitle"><BrainCircuit size={20} /> <strong>Leitura do copiloto</strong></div>
+                  <p>{selected.probableCause}</p>
+                </article>
+
+                <div className="detailGrid">
+                  <article className="detailCard">
+                    <div className="cardTitle"><Activity size={18} /> Evidências</div>
+                    <ul>
+                      {selected.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}
+                    </ul>
+                  </article>
+
+                  <article className="detailCard actionCard">
+                    <div className="cardTitle"><HardHat size={18} /> Próxima ação</div>
+                    <p>{selected.recommendedAction}</p>
+                    <div className="humanControl"><CheckCircle2 size={16} /> Recomendação sujeita à validação humana</div>
+                  </article>
+                </div>
+
+                {selected.potentialSavingsLitersPerShift && (
+                  <article className="impactCard">
+                    <Fuel size={21} />
+                    <div><span>Oportunidade estimada</span><strong>{selected.potentialSavingsLitersPerShift} L de combustível / turno</strong></div>
+                    <small>Estimativa calculada pela diferença para o baseline sintético do ativo.</small>
+                  </article>
+                )}
+              </section>
+            )}
+          </section>
+        </>
+      ) : (
+        <section className="operatorView">
+          <div className="operatorHero">
+            <div className="avatar"><HardHat size={28} /></div>
+            <div><span>MEU TURNO · OP-042</span><h2>Seu copiloto de operação</h2><p>Feedback para ajudar você a operar com mais segurança e eficiência.</p></div>
+            <div className="operatorScore"><strong>88</strong><span>desempenho</span></div>
+          </div>
+
+          <div className="coachGrid">
+            <article className="coachCard positive">
+              <CheckCircle2 size={23} />
+              <div><span>Você evoluiu</span><strong>Segurança estável</strong><p>Nenhum impacto ou sobrecarga no período analisado.</p></div>
+            </article>
+            <article className="coachCard focus">
+              <Fuel size={23} />
+              <div><span>Oportunidade</span><strong>Reduza tempo ocioso</strong><p>Seu turno teve 32% de idle contra 22% do histórico do equipamento.</p></div>
+            </article>
+            <article className="coachCard neutral">
+              <Activity size={23} />
+              <div><span>Próxima meta</span><strong>3 turnos de acompanhamento</strong><p>O copiloto mede a tendência depois da orientação para reconhecer sua evolução.</p></div>
+            </article>
+          </div>
+
+          <article className="coachMessage">
+            <Sparkles size={22} />
+            <div><strong>Recomendação personalizada</strong><p>{data.insights.find((item) => item.operatorId === "OP-042")?.humanMessage}</p></div>
+          </article>
+
+          <article className="privacyCard">
+            <ShieldCheck size={20} />
+            <div><strong>Transparência por design</strong><p>O MVP não toma decisão disciplinar automática. Contexto da rota, máquina, planejamento e histórico também precisam ser avaliados.</p></div>
+          </article>
+        </section>
+      )}
+
+      <footer className="dataFooter">
+        <Info size={16} />
+        <p><strong>Demo auditável:</strong> {data.source.disclaimer} Referência conceitual: {data.source.vendorReference}.</p>
+      </footer>
     </main>
   );
 }
