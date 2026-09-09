@@ -18,20 +18,38 @@ import {
   Sparkles,
   Wrench
 } from "lucide-react";
-import type { Insight, InsightCategory } from "@/lib/telemetry";
+import type { EnrichedInsight, MultivariateAgreement } from "@/lib/isolationForest";
+import type { InsightCategory } from "@/lib/telemetry";
 
 type ApiPayload = {
   mode: string;
   generatedAt: string;
   source: { type: string; vendorReference: string; disclaimer: string };
   analysis: {
-    method: string;
-    historyDays: number;
-    lookbackDays: number;
-    minBaselineSamples: number;
-    evaluationStart: string;
-    recordsAnalyzed: number;
-    candidateEvents: number;
+    statistical: {
+      method: string;
+      historyDays: number;
+      lookbackDays: number;
+      minBaselineSamples: number;
+      evaluationStart: string;
+      recordsAnalyzed: number;
+      candidateEvents: number;
+    };
+    multivariate: {
+      method: string;
+      trees: number;
+      subsampleSize: number;
+      features: string[];
+      evaluatedInsights: number;
+      strongAgreements: number;
+      moderateAgreements: number;
+      weakAgreements: number;
+    };
+    fusion: {
+      statisticalWeight: number;
+      multivariateWeight: number;
+      principle: string;
+    };
   };
   fleet: Array<{ assetId: string; capacity: string; status: string }>;
   summary: {
@@ -41,7 +59,7 @@ type ApiPayload = {
     criticalInsights: number;
     potentialSavingsLitersPerShift: number;
   };
-  insights: Insight[];
+  insights: EnrichedInsight[];
 };
 
 const categoryLabel: Record<InsightCategory, string> = {
@@ -63,6 +81,13 @@ const severityLabel = {
   high: "Alta",
   critical: "Crítica"
 } as const;
+
+const agreementLabel: Record<MultivariateAgreement, string> = {
+  strong: "forte",
+  moderate: "moderada",
+  weak: "fraca",
+  "not-applicable": "não aplicável"
+};
 
 export default function Home() {
   const [data, setData] = useState<ApiPayload | null>(null);
@@ -112,7 +137,7 @@ export default function Home() {
       <main className="loadingPage">
         <BrainCircuit className="pulse" size={34} />
         <h1>Aprendendo o comportamento da frota…</h1>
-        <p>Calculando baselines por ativo e turno antes de procurar desvios.</p>
+        <p>Calculando baseline estatístico e uma segunda opinião multivariada.</p>
       </main>
     );
   }
@@ -126,7 +151,7 @@ export default function Home() {
           <p>A máquina gera dados. A IA encontra o padrão. O ser humano decide.</p>
         </div>
         <div className="heroActions">
-          <div className="live"><span /> baseline estatístico ativo</div>
+          <div className="live"><span /> z-score + Isolation Forest</div>
           <div className="viewToggle" aria-label="Alternar visão">
             <button className={view === "manager" ? "active" : ""} onClick={() => setView("manager")}>Gestor</button>
             <button className={view === "operator" ? "active" : ""} onClick={() => setView("operator")}>Operador</button>
@@ -137,8 +162,8 @@ export default function Home() {
       <section className="trustBanner">
         <ShieldCheck size={19} />
         <div>
-          <strong>IA como copiloto, não como juiz.</strong>
-          <span>Cada alerta compara o turno com o histórico da mesma máquina e turno, mostra o desvio estatístico e mantém a decisão final humana.</span>
+          <strong>Duas camadas de detecção, decisão final humana.</strong>
+          <span>O z-score explica quais métricas desviaram; o Isolation Forest verifica se a combinação inteira também é rara no histórico comparável.</span>
         </div>
       </section>
 
@@ -154,12 +179,12 @@ export default function Home() {
               <div><span>Insights ativos</span><strong>{data.summary.activeInsights}</strong><small>{data.summary.criticalInsights} prioridade crítica</small></div>
             </article>
             <article className="kpiCard">
-              <div className="kpiIcon"><Fuel size={20} /></div>
-              <div><span>Economia identificada</span><strong>{data.summary.potentialSavingsLitersPerShift} L</strong><small>por turno no caso detectado</small></div>
+              <div className="kpiIcon"><BrainCircuit size={20} /></div>
+              <div><span>Concordância multivariada</span><strong>{data.analysis.multivariate.strongAgreements}</strong><small>insights com segunda opinião forte</small></div>
             </article>
             <article className="kpiCard">
               <div className="kpiIcon"><Leaf size={20} /></div>
-              <div><span>Histórico aprendido</span><strong>{data.analysis.historyDays} dias</strong><small>{data.analysis.recordsAnalyzed} turnos sintéticos analisados</small></div>
+              <div><span>Histórico aprendido</span><strong>{data.analysis.statistical.historyDays} dias</strong><small>{data.analysis.statistical.recordsAnalyzed} turnos sintéticos analisados</small></div>
             </article>
           </section>
 
@@ -193,7 +218,8 @@ export default function Home() {
                       </div>
                       <strong>{insight.assetId} · {insight.title}</strong>
                       <p>{insight.summary}</p>
-                      {insight.operatorId && <small>Concentração: {insight.operatorId}</small>}
+                      {insight.operatorId && <small>Concentração: {insight.operatorId} · </small>}
+                      <small>ML: concordância {agreementLabel[insight.multivariate.agreement]}</small>
                     </div>
                     <ChevronRight size={18} />
                   </button>
@@ -212,14 +238,27 @@ export default function Home() {
                     <h2>{selected.assetId}</h2>
                     <p>{selected.title}</p>
                   </div>
-                  <div className="scoreRing"><strong>{selected.score}</strong><span>score</span></div>
+                  <div className="scoreRing"><strong>{selected.score}</strong><span>fusion</span></div>
                 </div>
 
                 <article className="aiConclusion">
-                  <div className="aiTitle"><BrainCircuit size={20} /> <strong>Leitura do copiloto</strong></div>
+                  <div className="aiTitle"><BrainCircuit size={20} /> <strong>Leitura estatística explicável</strong></div>
                   <p>{selected.probableCause}</p>
                   {selected.analysis && (
                     <small>Baseline automático: {selected.analysis.baselineSamples} turnos comparáveis · maior desvio {selected.analysis.maxAbsZ}σ · janela {selected.analysis.period}</small>
+                  )}
+                </article>
+
+                <article className="aiConclusion">
+                  <div className="aiTitle"><Sparkles size={20} /> <strong>2ª opinião · Isolation Forest</strong></div>
+                  <p>{selected.multivariate.explanation}</p>
+                  {selected.multivariate.applicable && (
+                    <small>
+                      Concordância {agreementLabel[selected.multivariate.agreement]}
+                      {selected.multivariate.anomalyScore !== undefined ? ` · score IF ${selected.multivariate.anomalyScore}` : ""}
+                      {selected.multivariate.peakPercentile !== undefined ? ` · percentil ${Math.round(selected.multivariate.peakPercentile * 100)}%` : ""}
+                      {selected.multivariate.evaluatedTurns ? ` · ${selected.multivariate.evaluatedTurns} turno(s) avaliados` : ""}
+                    </small>
                   )}
                 </article>
 
@@ -290,7 +329,7 @@ export default function Home() {
 
       <footer className="dataFooter">
         <Info size={16} />
-        <p><strong>Demo auditável:</strong> {data.source.disclaimer} O baseline é calculado pelo próprio MVP a partir do histórico sintético e não usa os rótulos dos cenários como entrada. Referência conceitual: {data.source.vendorReference}.</p>
+        <p><strong>Demo auditável:</strong> {data.source.disclaimer} O score final combina {Math.round(data.analysis.fusion.statisticalWeight * 100)}% da camada estatística explicável e {Math.round(data.analysis.fusion.multivariateWeight * 100)}% da segunda opinião multivariada. Referência conceitual: {data.source.vendorReference}.</p>
       </footer>
     </main>
   );

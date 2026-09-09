@@ -22,5 +22,39 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Security audit
+        run: npm audit --audit-level=high
+
       - name: Build
         run: npm run build
+
+      - name: Runtime telemetry smoke test
+        run: |
+          npm run start > /tmp/tech4change-app.log 2>&1 &
+          APP_PID=$!
+          trap 'kill $APP_PID || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:3000/api/telemetry -o /tmp/telemetry.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          node <<'NODE'
+          const fs = require('fs');
+          if (!fs.existsSync('/tmp/telemetry.json')) throw new Error('Telemetry endpoint did not become available');
+          const payload = JSON.parse(fs.readFileSync('/tmp/telemetry.json', 'utf8'));
+          if (!payload.analysis?.statistical) throw new Error('Missing statistical analysis metadata');
+          if (!payload.analysis?.multivariate) throw new Error('Missing Isolation Forest metadata');
+          if (!Array.isArray(payload.insights) || payload.insights.length < 5) throw new Error('Expected demo insights were not produced');
+          const applicable = payload.insights.filter((insight) => insight.multivariate?.applicable);
+          if (applicable.length < 4) throw new Error('Expected multivariate analysis for non-maintenance insights');
+          if (!applicable.every((insight) => typeof insight.multivariate.peakPercentile === 'number')) throw new Error('Missing multivariate percentile evidence');
+          console.log(JSON.stringify({
+            insights: payload.insights.length,
+            strong: payload.analysis.multivariate.strongAgreements,
+            moderate: payload.analysis.multivariate.moderateAgreements,
+            weak: payload.analysis.multivariate.weakAgreements
+          }));
+          NODE
