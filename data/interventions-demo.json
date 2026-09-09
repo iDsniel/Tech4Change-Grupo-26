@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "telemetry-feedback-v1",
+  "interventions": [
+    {
+      "id": "INT-001",
+      "insightId": "FLT-017-efficiency-OP-042",
+      "appliedAt": "2026-09-05",
+      "targetTurns": 3,
+      "actionType": "operator_coaching",
+      "actorRole": "supervisor",
+      "note": "Orientação sobre redução de tempo ocioso e planejamento de deslocamentos sem carga."
+    },
+    {
+      "id": "INT-002",
+      "insightId": "FLT-031-shocks-OP-007",
+      "appliedAt": "2026-09-03",
+      "targetTurns": 3,
+      "actionType": "safety_coaching",
+      "actorRole": "supervisor",
+      "note": "Revisão dos eventos de impacto, rota e condução segura antes do próximo ciclo."
+    },
+    {
+      "id": "INT-003",
+      "insightId": "FLT-012-overload-OP-015",
+      "appliedAt": "2026-09-07",
+      "targetTurns": 2,
+      "actionType": "load_procedure_review",
+      "actorRole": "supervisor",
+      "note": "Reforço de limite de carga e validação do equipamento adequado para a tarefa."
+    }
+  ]
+}

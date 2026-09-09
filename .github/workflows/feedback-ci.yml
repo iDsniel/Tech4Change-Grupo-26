@@ -1,0 +1,87 @@
+name: Feedback CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  feedback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: Feedback loop smoke test
+        run: |
+          npm run start > /tmp/tech4change-feedback.log 2>&1 &
+          APP_PID=$!
+          trap 'kill $APP_PID || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:3000/api/telemetry/feedback -o /tmp/feedback-summary.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          node <<'NODE'
+          const fs = require('fs');
+          if (!fs.existsSync('/tmp/feedback-summary.json')) throw new Error('Feedback endpoint did not become available');
+          const payload = JSON.parse(fs.readFileSync('/tmp/feedback-summary.json', 'utf8'));
+          if (payload.schemaVersion !== 'telemetry-feedback-v1') throw new Error('Unexpected feedback schema');
+          if (payload.summary?.registeredInterventions !== 3) throw new Error('Expected three registered demo interventions');
+          if (!Array.isArray(payload.assessments) || payload.assessments.length !== 3) throw new Error('Expected three feedback assessments');
+          if (!payload.assessments.every((item) => item.guardrails?.associationNotCausation === true)) throw new Error('Missing causality guardrail');
+          console.log(JSON.stringify(payload.summary));
+          NODE
+
+          curl -fsS \
+            'http://127.0.0.1:3000/api/telemetry/feedback?insightId=FLT-017-efficiency-OP-042' \
+            -o /tmp/feedback-efficiency.json
+
+          node <<'NODE'
+          const payload = require('/tmp/feedback-efficiency.json');
+          if (!payload.tracked) throw new Error('Efficiency intervention should be registered');
+          const feedback = payload.assessments?.[0];
+          if (!feedback) throw new Error('Missing efficiency feedback assessment');
+          if (feedback.context?.shift !== 'C') throw new Error(`Expected shift C; got ${feedback.context?.shift}`);
+          if (feedback.context?.observedTurns !== 3) throw new Error(`Expected 3 post-action turns; got ${feedback.context?.observedTurns}`);
+          if (!(feedback.convergence?.improvementPct > 0)) throw new Error(`Expected positive convergence; got ${feedback.convergence?.improvementPct}`);
+          if (feedback.status === 'worsened' || feedback.status === 'insufficient-data') throw new Error(`Unexpected feedback status: ${feedback.status}`);
+          if (!feedback.convergence.metrics?.some((metric) => metric.metric === 'fuelLiters')) throw new Error('Fuel metric missing from feedback');
+          if (!feedback.convergence.metrics?.some((metric) => metric.metric === 'idlePct')) throw new Error('Idle metric missing from feedback');
+          console.log(JSON.stringify({
+            insightId: feedback.insightId,
+            status: feedback.status,
+            improvementPct: feedback.convergence.improvementPct,
+            observedTurns: feedback.context.observedTurns,
+            fuelDelta: feedback.impact.fuelLitersPerShiftDelta,
+            idleDelta: feedback.impact.idlePercentagePointsDelta
+          }));
+          NODE
+
+          curl -fsS \
+            'http://127.0.0.1:3000/api/telemetry/feedback?insightId=FLT-023-mechanical' \
+            -o /tmp/feedback-untracked.json
+
+          node <<'NODE'
+          const payload = require('/tmp/feedback-untracked.json');
+          if (payload.tracked !== false) throw new Error('Mechanical insight should demonstrate untracked state');
+          NODE

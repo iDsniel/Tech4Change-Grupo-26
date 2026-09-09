@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BrainCircuit, ShieldCheck, Sparkles } from "lucide-react";
+import { FeedbackLoop } from "@/components/FeedbackLoop";
 
 type ExplanationResponse = {
   schemaVersion: "telemetry-explanation-v1";
@@ -54,40 +55,47 @@ export function GenerativeExplanation({ insightId }: { insightId: string }) {
     return () => controller.abort();
   }, [insightId]);
 
+  let explanationCard: React.ReactNode;
+
   if (loading) {
-    return (
+    explanationCard = (
       <article className="aiConclusion">
         <div className="aiTitle"><BrainCircuit className="pulse" size={20} /> <strong>Copiloto explicando as evidências…</strong></div>
         <p>A análise estatística já está pronta. Esta camada apenas traduz as evidências para linguagem operacional.</p>
       </article>
     );
-  }
-
-  if (error || !result) {
-    return (
+  } else if (error || !result) {
+    explanationCard = (
       <article className="aiConclusion">
         <div className="aiTitle"><ShieldCheck size={20} /> <strong>Explicação protegida</strong></div>
         <p>{error || "A camada explicadora não respondeu. As evidências técnicas abaixo continuam disponíveis para decisão humana."}</p>
       </article>
     );
+  } else {
+    explanationCard = (
+      <article className="aiConclusion">
+        <div className="aiTitle">
+          <Sparkles size={20} />
+          <strong>Copiloto · explicação das evidências</strong>
+        </div>
+        <p><strong>{result.explanation.headline}</strong></p>
+        <p>{result.explanation.explanation}</p>
+        <p>{result.explanation.whyItMatters}</p>
+        <small>{result.explanation.uncertainty}</small>
+        <small>
+          {result.mode === "generative"
+            ? ` · IA generativa (${result.model ?? "modelo configurado"})`
+            : " · fallback determinístico — a demo funciona sem chave de API"}
+          {" · "}evidência limitada ao motor · decisão final humana
+        </small>
+      </article>
+    );
   }
 
   return (
-    <article className="aiConclusion">
-      <div className="aiTitle">
-        <Sparkles size={20} />
-        <strong>Copiloto · explicação das evidências</strong>
-      </div>
-      <p><strong>{result.explanation.headline}</strong></p>
-      <p>{result.explanation.explanation}</p>
-      <p>{result.explanation.whyItMatters}</p>
-      <small>{result.explanation.uncertainty}</small>
-      <small>
-        {result.mode === "generative"
-          ? ` · IA generativa (${result.model ?? "modelo configurado"})`
-          : " · fallback determinístico — a demo funciona sem chave de API"}
-        {" · "}evidência limitada ao motor · decisão final humana
-      </small>
-    </article>
+    <>
+      {explanationCard}
+      <FeedbackLoop insightId={insightId} />
+    </>
   );
 }
