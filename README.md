@@ -1,6 +1,6 @@
 # Copiloto Operacional AI — Tech4Change Grupo 26
 
-MVP de uma camada de inteligência sobre telemetria industrial. A solução aprende o comportamento histórico de empilhadeiras, identifica desvios estatísticos, usa um detector multivariado como segunda opinião e transforma sinais técnicos em explicações e recomendações para operadores e gestores.
+MVP de uma camada de inteligência sobre telemetria industrial. A solução recebe telemetria em um contrato normalizado, aprende o comportamento histórico dos ativos, identifica desvios estatísticos, usa um detector multivariado como segunda opinião e transforma sinais técnicos em explicações e recomendações para operadores e gestores.
 
 > **A máquina gera os dados. A IA encontra o padrão. O ser humano decide.**
 
@@ -13,11 +13,11 @@ Frotas e equipamentos conectados geram muitos dados, mas dashboards tradicionais
 - qual é o impacto;
 - qual ação deve ser priorizada.
 
-O MVP demonstra uma abordagem de *human augmentation*: a inteligência organiza evidências e hipóteses sem automatizar decisões disciplinares ou técnicas críticas.
+O MVP demonstra *human augmentation*: a inteligência organiza evidências e hipóteses sem automatizar decisões disciplinares ou técnicas críticas.
 
 ## Caso demonstrativo
 
-Usamos empilhadeiras como cenário e conceitos de telemetria publicamente documentados pela Konecranes TRUCONNECT. Os valores deste repositório são **100% sintéticos** e o schema é **normalizado pelo MVP**; ele não deve ser apresentado como payload literal da API Konecranes.
+Usamos empilhadeiras como cenário e conceitos de telemetria publicamente documentados pela Konecranes TRUCONNECT. Os valores do dataset de demonstração são **100% sintéticos** e o schema é **normalizado pelo MVP**; ele não deve ser apresentado como payload literal da API de qualquer fabricante.
 
 Sinais utilizados:
 
@@ -34,24 +34,82 @@ Sinais utilizados:
 ## Vertical slice atual
 
 ```text
-30 dias de histórico sintético
-            ↓
-Agregação por ativo + turno
-            ↓
-Baseline automático (média + desvio padrão)
-            ↓
-Z-score por métrica ───────────────┐
-            ↓                      │
-Detecção explicável                │
-                                   ├→ Fusão de confiança → Insight
-Isolation Forest multivariado ─────┘
-            ↓
+CSV / fonte externa
+       ↓
+Telemetry Adapter
+       ↓
+Contrato telemetry-shift-v1
+       ↓
+Validação de schema, tipos, ranges e duplicidade
+       ↓
+HistoricalShiftRecord[]
+       ↓
+Baseline + z-score ───────────────┐
+       ↓                          │
+Detecção explicável               ├→ Fusão → Insight
+                                  │
+Isolation Forest multivariado ────┘
+       ↓
 Ranking + evidências + recomendação
-            ↓
+       ↓
 Visão Gestor / Visão Operador
 ```
 
-O motor gera **720 turnos históricos** na demonstração: 8 ativos × 3 turnos × 30 dias. O baseline não é informado manualmente ao detector.
+A demo agora lê **`data/telemetry-demo.csv`**. O arquivo contém **720 turnos históricos**: 8 ativos × 3 turnos × 30 dias. O motor não precisa gerar esses 720 registros em runtime para executar a demonstração.
+
+## Contrato normalizado — `telemetry-shift-v1`
+
+O adapter aceita CSV UTF-8 com o cabeçalho exato:
+
+```csv
+date,asset_id,operator_id,shift,fuel_liters,idle_pct,empty_travel_pct,avg_speed_kmh,max_coolant_c,shocks,overloads,maintenance_hours_remaining
+```
+
+### Regras principais
+
+- `date`: `YYYY-MM-DD`;
+- `asset_id`: obrigatório;
+- `operator_id`: pode ficar vazio; o adapter normaliza como `UNASSIGNED`;
+- `shift`: `A`, `B` ou `C`;
+- percentuais: `0..100`;
+- métricas numéricas: precisam ser finitas e respeitar ranges de segurança do contrato;
+- `shocks` e `overloads`: inteiros não negativos;
+- não pode existir mais de um registro para `date + asset_id + shift`;
+- limite atual de ingestão: 2 MB e 50.000 linhas.
+
+Erros de contrato retornam HTTP **422** com a linha, campo e motivo da falha. O parser limita a resposta aos primeiros 20 problemas para evitar payloads excessivos.
+
+## API do MVP
+
+### `GET /api/telemetry`
+
+Lê `data/telemetry-demo.csv`, valida o contrato e executa o pipeline completo.
+
+A resposta inclui:
+
+- origem e versão do schema;
+- quantidade de linhas, ativos e operadores ingeridos;
+- período do dataset;
+- metadados da análise estatística;
+- metadados do Isolation Forest;
+- pesos da fusão;
+- frota e status calculado;
+- insights ordenados;
+- evidências estatísticas e multivariadas.
+
+### `POST /api/telemetry`
+
+Aceita um dataset externo com `Content-Type: text/csv` ou `application/csv`.
+
+Exemplo:
+
+```bash
+curl -X POST http://localhost:3000/api/telemetry \
+  -H "Content-Type: text/csv" \
+  --data-binary @data/telemetry-demo.csv
+```
+
+O CSV passa pelo **mesmo adapter e pelo mesmo motor** da demo. Isso cria o ponto de entrada para futuros adapters de Konecranes, Toyota, Hyster, Yale, Jungheinrich, banco de dados ou streaming: cada integração precisa apenas converter sua origem para `telemetry-shift-v1`.
 
 ## Camada 1 — baseline e z-score
 
@@ -61,29 +119,27 @@ Para cada turno avaliado, o motor procura registros históricos do **mesmo ativo
 z-score = (valor atual - média histórica) / desvio padrão
 ```
 
-A janela de avaliação é separada da janela usada para formar o baseline. Isso evita que uma anomalia persistente contamine rapidamente o próprio comportamento considerado “normal”.
+A janela de avaliação é separada da janela usada para formar o baseline. Isso evita que uma anomalia persistente contamine rapidamente o comportamento considerado normal.
 
-O z-score responde principalmente:
+O z-score responde:
 
 > **Qual variável saiu do padrão e quanto ela desviou?**
 
 ## Camada 2 — Isolation Forest
 
-O MVP também implementa um **Isolation Forest determinístico** em TypeScript, sem dependência externa de ML.
+O MVP implementa um **Isolation Forest determinístico** em TypeScript, sem dependência externa de ML.
 
 Para cada insight estatístico elegível:
 
-1. seleciona somente turnos históricos comparáveis do mesmo ativo + turno;
-2. usa consumo, idle, deslocamento vazio, velocidade, temperatura, impactos e sobrecarga como vetor multivariado;
+1. seleciona turnos históricos comparáveis do mesmo ativo + turno;
+2. usa combustível, idle, deslocamento vazio, velocidade, temperatura, impactos e sobrecarga como vetor;
 3. constrói 96 árvores de isolamento com subamostras de até 16 turnos;
-4. calcula o anomaly score do turno atual;
-5. compara o score com os próprios turnos históricos e gera um **percentil de raridade**.
+4. calcula o anomaly score;
+5. compara esse score com os próprios turnos históricos e gera um **percentil de raridade**.
 
 O Isolation Forest responde:
 
-> **Essa combinação inteira de comportamento também parece rara, mesmo olhando todas as variáveis juntas?**
-
-O dashboard classifica a concordância como forte, moderada ou fraca. Isso não substitui a explicação do z-score; funciona como segunda opinião.
+> **Essa combinação inteira de comportamento também é rara no histórico?**
 
 ## Fusão dos detectores
 
@@ -92,61 +148,32 @@ O score exibido combina:
 - **80%** camada estatística explicável;
 - **20%** suporte multivariado do Isolation Forest.
 
-A manutenção programada permanece fora dessa fusão: o contador de manutenção continua sendo uma regra operacional explícita e não é apresentado como previsão de falha por ML.
+A manutenção programada permanece fora dessa fusão: o contador de manutenção é uma regra operacional explícita e não é apresentado como previsão de falha por ML.
 
-## O que a análise consegue diferenciar
+## Cenários detectados na demo
 
-### 1. Ineficiência operacional — FLT-017 / OP-042
-
-Consumo e tempo ocioso ficam acima do baseline do mesmo ativo/turno, com concentração em um operador e sem anomalia térmica equivalente.
-
-### 2. Possível degradação mecânica — FLT-023
-
-Consumo e temperatura sobem simultaneamente em diferentes turnos e operadores, e o detector multivariado verifica se a combinação também foge do histórico.
-
-### 3. Eventos de impacto — FLT-031 / OP-007
-
-Impactos e velocidade média ficam muito acima do histórico comparável.
-
-### 4. Sobrecarga — FLT-012 / OP-015
-
-Eventos de sobrecarga fogem do comportamento histórico do mesmo ativo e turno.
-
-### 5. Manutenção preventiva — FLT-044
-
-O contador entra na janela de planejamento. Esse caso não é apresentado como previsão estatística de falha.
+1. **FLT-017 / OP-042 — ineficiência operacional:** consumo + idle + deslocamento vazio acima do padrão.
+2. **FLT-023 — possível degradação mecânica:** consumo + temperatura sobem em vários turnos e operadores.
+3. **FLT-031 / OP-007 — impactos:** impactos e velocidade fogem do histórico comparável.
+4. **FLT-012 / OP-015 — sobrecarga:** eventos de sobrecarga fora do comportamento normal.
+5. **FLT-044 — manutenção:** contador entra na janela de planejamento.
 
 ## Auditabilidade
 
 Cada insight pode mostrar:
 
 - valor atual;
-- média aprendida;
-- desvio padrão;
+- média e desvio padrão aprendidos;
 - z-score em σ;
 - quantidade de amostras usadas;
 - score do Isolation Forest;
 - percentil multivariado;
-- nível de concordância entre os detectores;
-- score final de fusão;
+- nível de concordância;
+- score final;
 - causa provável;
-- recomendação sujeita a validação humana.
+- recomendação sujeita à validação humana.
 
 Assim o sistema consegue responder tanto **“qual dado desviou?”** quanto **“o padrão completo também é estranho?”**.
-
-## API do MVP
-
-### `GET /api/telemetry`
-
-Executa o pipeline completo e retorna:
-
-- metadados da análise estatística;
-- metadados do Isolation Forest;
-- pesos da fusão;
-- frota e status calculado;
-- insights ordenados;
-- evidências estatísticas e multivariadas;
-- disclaimer de origem dos dados.
 
 ## Validação contínua
 
@@ -154,13 +181,23 @@ O GitHub Actions executa:
 
 ```text
 npm install
+npm audit --audit-level=high
 npm run build
 npm run start
 GET /api/telemetry
-validação do contrato híbrido
+  ↓
+valida schema telemetry-shift-v1 + 720 linhas + motor híbrido
+  ↓
+POST /api/telemetry com o CSV normalizado
+  ↓
+valida resposta externa e insights
+  ↓
+POST de CSV inválido
+  ↓
+exige HTTP 422
 ```
 
-O smoke test falha se o endpoint não subir, se os insights esperados não forem produzidos ou se a evidência multivariada estiver ausente.
+O PR falha se houver vulnerabilidade `high/critical`, erro de build, falha de leitura do CSV, alteração indevida no número de registros, quebra do motor estatístico/ML ou ausência da validação de contrato.
 
 ## Executar localmente
 
@@ -176,40 +213,44 @@ O slice de telemetria não exige chave de API.
 ## Arquitetura alvo
 
 ```text
-Fabricantes / fontes de telemetria
-            ↓
-         Adapter
-            ↓
-    Schema normalizado
-            ↓
-Baseline + z-score + Isolation Forest
-            ↓
-       Insight Engine
-            ↓
- IA generativa explicativa
-            ↓
- Operador + Gestor + CMMS
+Konecranes / Toyota / Hyster / Yale / Jungheinrich / outros
+                           ↓
+                   Adapter do fornecedor
+                           ↓
+                    telemetry-shift-v1
+                           ↓
+             Baseline + z-score + Isolation Forest
+                           ↓
+                      Insight Engine
+                           ↓
+               IA generativa explicativa
+                           ↓
+                Operador + Gestor + CMMS
 ```
 
-## Evolução de IA
+## Evolução
 
 Concluído:
 
-- [x] histórico sintético de 30 dias;
+- [x] dataset sintético de 30 dias versionado em CSV;
+- [x] contrato normalizado `telemetry-shift-v1`;
+- [x] parser e validação de CSV;
+- [x] ingestão do CSV demo via filesystem;
+- [x] ingestão de CSV externo via `POST /api/telemetry`;
 - [x] baseline automático por ativo/turno;
 - [x] z-score por métrica;
 - [x] Isolation Forest multivariado;
-- [x] percentil de raridade contra histórico comparável;
+- [x] percentil de raridade;
 - [x] fusão estatística + ML;
-- [x] evidências auditáveis na interface;
-- [x] smoke test do pipeline no CI.
+- [x] security gate + build + smoke test no CI.
 
 Próximos passos:
 
-1. substituir o gerador interno pelo CSV normalizado/adapter de uma fonte de dados;
-2. usar modelo generativo somente para transformar evidências estruturadas em explicação clara;
-3. adicionar feedback pós-recomendação para medir evolução do operador;
-4. criar adapter real para a fonte de telemetria disponível.
+1. remover o gerador legado que permaneceu apenas como código de apoio e consolidar fixtures no CSV;
+2. criar um adapter de fornecedor real ou mock de API usando o mesmo contrato;
+3. usar modelo generativo somente para transformar evidências estruturadas em explicação clara;
+4. adicionar feedback pós-recomendação para medir evolução do operador;
+5. integrar uma fonte real de telemetria quando credenciais/dados estiverem disponíveis.
 
 ## Guardrails
 
@@ -218,9 +259,10 @@ Próximos passos:
 - Isolation Forest detecta raridade, não causalidade;
 - concordância entre modelos aumenta evidência, mas não prova causa;
 - condição de rota, piso, processo, planejamento e máquina deve ser considerada;
-- `operator_id` é opcional e pode depender de integração externa;
+- `operator_id` pode depender de integração externa;
 - sinais disponíveis variam conforme equipamento, configuração e assinatura do provedor;
-- o baseline não deve incorporar automaticamente períodos suspeitos sem validação.
+- o baseline não deve incorporar automaticamente períodos suspeitos sem validação;
+- datasets externos precisam passar pelo contrato antes de alimentar o motor.
 
 ## Referências públicas usadas na modelagem
 

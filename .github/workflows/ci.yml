@@ -45,6 +45,10 @@ jobs:
           const fs = require('fs');
           if (!fs.existsSync('/tmp/telemetry.json')) throw new Error('Telemetry endpoint did not become available');
           const payload = JSON.parse(fs.readFileSync('/tmp/telemetry.json', 'utf8'));
+          if (payload.source?.type !== 'normalized-csv') throw new Error('Demo is not using the normalized CSV adapter');
+          if (payload.source?.ingestion?.schemaVersion !== 'telemetry-shift-v1') throw new Error('Unexpected telemetry schema version');
+          if (payload.source?.ingestion?.rows !== 720) throw new Error(`Expected 720 CSV rows; received ${payload.source?.ingestion?.rows}`);
+          if (payload.source?.ingestion?.assets !== 8) throw new Error('Expected 8 assets in demo CSV');
           if (!payload.analysis?.statistical) throw new Error('Missing statistical analysis metadata');
           if (!payload.analysis?.multivariate) throw new Error('Missing Isolation Forest metadata');
           if (!Array.isArray(payload.insights) || payload.insights.length < 5) throw new Error('Expected demo insights were not produced');
@@ -52,9 +56,35 @@ jobs:
           if (applicable.length < 4) throw new Error('Expected multivariate analysis for non-maintenance insights');
           if (!applicable.every((insight) => typeof insight.multivariate.peakPercentile === 'number')) throw new Error('Missing multivariate percentile evidence');
           console.log(JSON.stringify({
+            source: payload.source.type,
+            rows: payload.source.ingestion.rows,
             insights: payload.insights.length,
             strong: payload.analysis.multivariate.strongAgreements,
             moderate: payload.analysis.multivariate.moderateAgreements,
             weak: payload.analysis.multivariate.weakAgreements
           }));
+          NODE
+
+          curl -fsS \
+            -H 'Content-Type: text/csv' \
+            --data-binary @data/telemetry-demo.csv \
+            http://127.0.0.1:3000/api/telemetry \
+            -o /tmp/external-telemetry.json
+
+          node <<'NODE'
+          const payload = require('/tmp/external-telemetry.json');
+          if (payload.mode !== 'external') throw new Error('POST did not use external ingestion mode');
+          if (payload.source?.ingestion?.rows !== 720) throw new Error('POST adapter changed record count');
+          if (payload.insights?.length < 5) throw new Error('POST adapter did not feed the anomaly engine');
+          NODE
+
+          printf 'wrong,header\n1,2\n' > /tmp/invalid-telemetry.csv
+          STATUS=$(curl -sS -o /tmp/invalid-response.json -w '%{http_code}' \
+            -H 'Content-Type: text/csv' \
+            --data-binary @/tmp/invalid-telemetry.csv \
+            http://127.0.0.1:3000/api/telemetry)
+          test "$STATUS" = "422"
+          node <<'NODE'
+          const payload = require('/tmp/invalid-response.json');
+          if (payload.error !== 'telemetry_csv_validation_failed') throw new Error('Invalid CSV did not return contract validation error');
           NODE
