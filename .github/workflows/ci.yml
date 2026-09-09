@@ -88,3 +88,83 @@ jobs:
           const payload = require('/tmp/invalid-response.json');
           if (payload.error !== 'telemetry_csv_validation_failed') throw new Error('Invalid CSV did not return contract validation error');
           NODE
+
+          node <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('data/telemetry-demo.csv', 'utf8').trim().split(/\r?\n/);
+          const headers = raw[0].split(',');
+          const at = Object.fromEntries(headers.map((header, index) => [header, index]));
+          const capacities = {
+            'FLT-012': 16, 'FLT-017': 16, 'FLT-023': 18, 'FLT-031': 25,
+            'FLT-044': 25, 'FLT-052': 18, 'FLT-058': 16, 'FLT-064': 33
+          };
+          const startHour = { A: '00:00:00', B: '08:00:00', C: '16:00:00' };
+          const assets = new Map();
+
+          for (const line of raw.slice(1)) {
+            const row = line.split(',');
+            const assetId = row[at.asset_id];
+            if (!assets.has(assetId)) {
+              assets.set(assetId, { assetId, capacityTonnes: capacities[assetId], measurements: [] });
+            }
+            const shift = row[at.shift];
+            assets.get(assetId).measurements.push({
+              periodStart: `${row[at.date]}T${startHour[shift]}Z`,
+              shiftCode: shift,
+              operatorRef: row[at.operator_id] || null,
+              fuelConsumedLiters: Number(row[at.fuel_liters]),
+              idleRatio: Number(row[at.idle_pct]) / 100,
+              emptyTravelRatio: Number(row[at.empty_travel_pct]) / 100,
+              averageTravelSpeedKmh: Number(row[at.avg_speed_kmh]),
+              maxEngineCoolantC: Number(row[at.max_coolant_c]),
+              shockEvents: Number(row[at.shocks]),
+              overloadEvents: Number(row[at.overloads]),
+              maintenanceHoursRemaining: Number(row[at.maintenance_hours_remaining])
+            });
+          }
+
+          fs.writeFileSync('/tmp/konecranes-mock.json', JSON.stringify({
+            contractVersion: 'konecranes-truconnect-mock-v1',
+            provider: 'konecranes',
+            sourceSystem: 'truconnect-mock',
+            assets: [...assets.values()]
+          }));
+          NODE
+
+          curl -fsS \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/konecranes-mock.json \
+            http://127.0.0.1:3000/api/telemetry/providers/konecranes \
+            -o /tmp/konecranes-result.json
+
+          node <<'NODE'
+          const csv = require('/tmp/telemetry.json');
+          const provider = require('/tmp/konecranes-result.json');
+          if (provider.source?.type !== 'provider-adapter') throw new Error('Provider endpoint did not identify adapter source');
+          if (provider.source?.provider !== 'konecranes') throw new Error('Provider endpoint lost vendor identity');
+          if (provider.source?.ingestion?.contractVersion !== 'konecranes-truconnect-mock-v1') throw new Error('Unexpected provider contract version');
+          if (provider.source?.ingestion?.normalizedSchemaVersion !== 'telemetry-shift-v1') throw new Error('Provider did not normalize to telemetry-shift-v1');
+          if (provider.source?.ingestion?.records !== 720) throw new Error('Provider adapter changed record count');
+          if (!provider.fleet?.every((asset) => asset.capacity !== 'n/d')) throw new Error('Provider asset metadata was not preserved');
+          const csvIds = csv.insights.map((insight) => insight.id).sort();
+          const providerIds = provider.insights.map((insight) => insight.id).sort();
+          if (JSON.stringify(csvIds) !== JSON.stringify(providerIds)) {
+            throw new Error(`Provider adapter changed anomaly result: ${JSON.stringify({ csvIds, providerIds })}`);
+          }
+          console.log(JSON.stringify({
+            adapter: provider.source.name,
+            normalizedRecords: provider.source.ingestion.records,
+            equivalentInsights: providerIds.length
+          }));
+          NODE
+
+          printf '{"contractVersion":"wrong","provider":"konecranes","sourceSystem":"truconnect-mock","assets":[]}' > /tmp/invalid-konecranes.json
+          STATUS=$(curl -sS -o /tmp/invalid-konecranes-response.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/invalid-konecranes.json \
+            http://127.0.0.1:3000/api/telemetry/providers/konecranes)
+          test "$STATUS" = "422"
+          node <<'NODE'
+          const payload = require('/tmp/invalid-konecranes-response.json');
+          if (payload.error !== 'konecranes_adapter_validation_failed') throw new Error('Invalid provider payload did not return adapter validation error');
+          NODE

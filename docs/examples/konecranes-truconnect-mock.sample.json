@@ -1,0 +1,26 @@
+{
+  "contractVersion": "konecranes-truconnect-mock-v1",
+  "provider": "konecranes",
+  "sourceSystem": "truconnect-mock",
+  "assets": [
+    {
+      "assetId": "FLT-017",
+      "capacityTonnes": 16,
+      "measurements": [
+        {
+          "periodStart": "2026-09-02T16:00:00Z",
+          "shiftCode": "C",
+          "operatorRef": "OP-042",
+          "fuelConsumedLiters": 65.4,
+          "idleRatio": 0.34,
+          "emptyTravelRatio": 0.52,
+          "averageTravelSpeedKmh": 12.1,
+          "maxEngineCoolantC": 87.6,
+          "shockEvents": 0,
+          "overloadEvents": 0,
+          "maintenanceHoursRemaining": 118.5
+        }
+      ]
+    }
+  ]
+}
