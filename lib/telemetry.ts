@@ -1,29 +1,30 @@
 export type InsightCategory = "efficiency" | "mechanical" | "safety" | "maintenance";
 export type Severity = "attention" | "high" | "critical";
+export type Shift = "A" | "B" | "C";
 
-export type TelemetryWindow = {
+export type HistoricalShiftRecord = {
+  date: string;
   assetId: string;
-  operatorId?: string;
-  shift: "A" | "B" | "C";
-  period: string;
-  affectedOperators: number;
-  baseline: {
-    fuelLiters: number;
-    idlePct: number;
-    emptyTravelPct: number;
-    maxCoolantC: number;
-    shocks: number;
-    overloads: number;
-  };
-  current: {
-    fuelLiters: number;
-    idlePct: number;
-    emptyTravelPct: number;
-    maxCoolantC: number;
-    shocks: number;
-    overloads: number;
-    maintenanceHoursRemaining: number;
-  };
+  operatorId: string;
+  shift: Shift;
+  fuelLiters: number;
+  idlePct: number;
+  emptyTravelPct: number;
+  avgSpeedKmh: number;
+  maxCoolantC: number;
+  shocks: number;
+  overloads: number;
+  maintenanceHoursRemaining: number;
+};
+
+export type StatisticalEvidence = {
+  metric: "fuelLiters" | "idlePct" | "emptyTravelPct" | "avgSpeedKmh" | "maxCoolantC" | "shocks" | "overloads";
+  label: string;
+  current: number;
+  mean: number;
+  stdDev: number;
+  zScore: number;
+  unit: string;
 };
 
 export type Insight = {
@@ -40,200 +41,456 @@ export type Insight = {
   humanMessage: string;
   potentialSavingsLitersPerShift?: number;
   score: number;
+  analysis?: {
+    method: "rolling-zscore";
+    baselineSamples: number;
+    lookbackDays: number;
+    maxAbsZ: number;
+    period: string;
+    statisticalEvidence: StatisticalEvidence[];
+  };
 };
 
+type MetricKey = StatisticalEvidence["metric"];
+type MetricStats = { mean: number; stdDev: number; samples: number };
+type Baseline = Record<MetricKey, MetricStats>;
+
+type CandidateKind = "efficiency" | "mechanical" | "shocks" | "overload" | "maintenance";
+type Candidate = {
+  kind: CandidateKind;
+  row: HistoricalShiftRecord;
+  baseline: Baseline;
+  evidence: StatisticalEvidence[];
+  score: number;
+};
+
+const LOOKBACK_DAYS = 21;
+const MIN_BASELINE_SAMPLES = 10;
+const EVALUATION_START = "2026-08-28";
+
 export const demoFleet = [
-  { assetId: "FLT-012", capacity: "16 t", status: "attention" },
-  { assetId: "FLT-017", capacity: "16 t", status: "attention" },
-  { assetId: "FLT-023", capacity: "18 t", status: "critical" },
-  { assetId: "FLT-031", capacity: "25 t", status: "high" },
-  { assetId: "FLT-044", capacity: "25 t", status: "attention" },
-  { assetId: "FLT-052", capacity: "18 t", status: "healthy" },
-  { assetId: "FLT-058", capacity: "16 t", status: "healthy" },
-  { assetId: "FLT-064", capacity: "33 t", status: "healthy" }
+  { assetId: "FLT-012", capacity: "16 t" },
+  { assetId: "FLT-017", capacity: "16 t" },
+  { assetId: "FLT-023", capacity: "18 t" },
+  { assetId: "FLT-031", capacity: "25 t" },
+  { assetId: "FLT-044", capacity: "25 t" },
+  { assetId: "FLT-052", capacity: "18 t" },
+  { assetId: "FLT-058", capacity: "16 t" },
+  { assetId: "FLT-064", capacity: "33 t" }
 ] as const;
 
-export const demoTelemetryWindows: TelemetryWindow[] = [
-  {
-    assetId: "FLT-017",
-    operatorId: "OP-042",
-    shift: "C",
-    period: "02–05 set 2026",
-    affectedOperators: 1,
-    baseline: { fuelLiters: 31.4, idlePct: 22, emptyTravelPct: 37, maxCoolantC: 89, shocks: 0, overloads: 0 },
-    current: { fuelLiters: 34.4, idlePct: 32, emptyTravelPct: 49, maxCoolantC: 90, shocks: 0, overloads: 0, maintenanceHoursRemaining: 118 }
-  },
-  {
-    assetId: "FLT-023",
-    shift: "B",
-    period: "04–09 set 2026",
-    affectedOperators: 5,
-    baseline: { fuelLiters: 34.1, idlePct: 23, emptyTravelPct: 39, maxCoolantC: 91, shocks: 0, overloads: 0 },
-    current: { fuelLiters: 39.7, idlePct: 24, emptyTravelPct: 40, maxCoolantC: 108, shocks: 0, overloads: 0, maintenanceHoursRemaining: 83 }
-  },
-  {
-    assetId: "FLT-031",
-    operatorId: "OP-007",
-    shift: "B",
-    period: "28 ago–03 set 2026",
-    affectedOperators: 1,
-    baseline: { fuelLiters: 42.8, idlePct: 21, emptyTravelPct: 35, maxCoolantC: 88, shocks: 0, overloads: 0 },
-    current: { fuelLiters: 44.1, idlePct: 22, emptyTravelPct: 36, maxCoolantC: 89, shocks: 5, overloads: 0, maintenanceHoursRemaining: 132 }
-  },
-  {
-    assetId: "FLT-012",
-    operatorId: "OP-015",
-    shift: "A",
-    period: "06–07 set 2026",
-    affectedOperators: 1,
-    baseline: { fuelLiters: 30.8, idlePct: 20, emptyTravelPct: 36, maxCoolantC: 87, shocks: 0, overloads: 0 },
-    current: { fuelLiters: 31.2, idlePct: 21, emptyTravelPct: 36, maxCoolantC: 88, shocks: 0, overloads: 3, maintenanceHoursRemaining: 96 }
-  },
-  {
-    assetId: "FLT-044",
-    shift: "A",
-    period: "01–09 set 2026",
-    affectedOperators: 4,
-    baseline: { fuelLiters: 40.2, idlePct: 22, emptyTravelPct: 38, maxCoolantC: 90, shocks: 0, overloads: 0 },
-    current: { fuelLiters: 40.8, idlePct: 23, emptyTravelPct: 39, maxCoolantC: 91, shocks: 0, overloads: 0, maintenanceHoursRemaining: 18 }
-  }
-];
+const operatorIds = ["OP-007", "OP-015", "OP-021", "OP-028", "OP-033", "OP-042", "OP-051", "OP-063", "OP-074", "OP-088", "OP-094", "OP-105"];
+const shifts: Shift[] = ["A", "B", "C"];
 
-function pctDelta(current: number, baseline: number) {
-  return baseline === 0 ? 0 : ((current - baseline) / baseline) * 100;
+const assetProfiles = [
+  { assetId: "FLT-012", fuel: 56.8, idle: 21.5, empty: 42, speed: 12.0, coolant: 87.0, maintenance: 118 },
+  { assetId: "FLT-017", fuel: 55.4, idle: 22.0, empty: 43, speed: 12.1, coolant: 87.5, maintenance: 150 },
+  { assetId: "FLT-023", fuel: 61.8, idle: 22.5, empty: 41, speed: 11.7, coolant: 88.5, maintenance: 112 },
+  { assetId: "FLT-031", fuel: 73.5, idle: 21.0, empty: 39, speed: 10.9, coolant: 88.0, maintenance: 190 },
+  { assetId: "FLT-044", fuel: 72.0, idle: 22.0, empty: 40, speed: 10.7, coolant: 88.5, maintenance: 84 },
+  { assetId: "FLT-052", fuel: 60.2, idle: 23.0, empty: 42, speed: 11.5, coolant: 87.0, maintenance: 138 },
+  { assetId: "FLT-058", fuel: 54.2, idle: 20.5, empty: 41, speed: 12.3, coolant: 86.5, maintenance: 214 },
+  { assetId: "FLT-064", fuel: 86.5, idle: 22.0, empty: 38, speed: 10.1, coolant: 89.0, maintenance: 168 }
+] as const;
+
+function round(value: number, digits = 1) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }
 
-function round(value: number) {
-  return Math.round(value * 10) / 10;
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
-export function analyzeTelemetry(windows: TelemetryWindow[] = demoTelemetryWindows): Insight[] {
-  const insights: Insight[] = [];
+function isoDate(start: Date, offsetDays: number) {
+  const date = new Date(start);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
 
-  for (const row of windows) {
-    const fuelDelta = pctDelta(row.current.fuelLiters, row.baseline.fuelLiters);
-    const idleDelta = row.current.idlePct - row.baseline.idlePct;
-    const emptyDelta = row.current.emptyTravelPct - row.baseline.emptyTravelPct;
+function noise(day: number, asset: number, shift: number, salt: number) {
+  const raw = Math.sin((day + 1) * 12.9898 + (asset + 3) * 78.233 + (shift + 5) * 37.719 + salt * 11.131) * 43758.5453;
+  const unit = raw - Math.floor(raw);
+  return unit * 2 - 1;
+}
 
-    if (fuelDelta >= 8 && idleDelta >= 6 && row.affectedOperators <= 1) {
-      const excessFuel = Math.max(0, row.current.fuelLiters - row.baseline.fuelLiters);
-      insights.push({
-        id: `${row.assetId}-efficiency`,
-        assetId: row.assetId,
-        operatorId: row.operatorId,
-        category: "efficiency",
-        severity: fuelDelta >= 15 ? "high" : "attention",
-        title: "Ineficiência concentrada na operação",
-        summary: `Consumo ${round(fuelDelta)}% acima do baseline, com aumento de ${round(idleDelta)} p.p. no tempo ocioso.`,
-        evidence: [
-          `Combustível: ${row.baseline.fuelLiters} L → ${row.current.fuelLiters} L/turno`,
-          `Idle: ${row.baseline.idlePct}% → ${row.current.idlePct}%`,
-          `Deslocamento vazio: ${row.baseline.emptyTravelPct}% → ${row.current.emptyTravelPct}%`,
-          `Padrão concentrado em ${row.operatorId ?? "um operador"}`
-        ],
-        probableCause: "O desvio acompanha um operador/turno e não aparece como tendência geral do ativo. A hipótese prioritária é comportamento operacional ou fluxo de espera, não falha mecânica.",
-        recommendedAction: "Fazer coaching curto de eco-driving e revisar os períodos de espera e deslocamentos sem carga. Acompanhar os próximos 3 turnos para confirmar melhora.",
-        humanMessage: "Você não está sendo avaliado por uma única ocorrência. O copiloto compara seu turno com o histórico e mostra onde pequenas mudanças podem reduzir desperdício.",
-        potentialSavingsLitersPerShift: round(excessFuel),
-        score: Math.min(100, Math.round(55 + fuelDelta + idleDelta * 2 + emptyDelta))
+function operatorFor(day: number, asset: number, shift: number) {
+  return operatorIds[(day + asset * 3 + shift * 5) % operatorIds.length];
+}
+
+export function buildDemoHistory(): HistoricalShiftRecord[] {
+  const start = new Date("2026-08-11T00:00:00Z");
+  const rows: HistoricalShiftRecord[] = [];
+
+  for (let day = 0; day < 30; day += 1) {
+    const date = isoDate(start, day);
+
+    assetProfiles.forEach((profile, assetIndex) => {
+      shifts.forEach((shift, shiftIndex) => {
+        const shiftFuelFactor = [0.98, 1.03, 1.0][shiftIndex];
+        let operatorId = operatorFor(day, assetIndex, shiftIndex);
+        let fuelLiters = profile.fuel * shiftFuelFactor * (1 + noise(day, assetIndex, shiftIndex, 1) * 0.035);
+        let idlePct = profile.idle + noise(day, assetIndex, shiftIndex, 2) * 2.0;
+        let emptyTravelPct = profile.empty + noise(day, assetIndex, shiftIndex, 3) * 3.0;
+        let avgSpeedKmh = profile.speed + noise(day, assetIndex, shiftIndex, 4) * 0.8;
+        let maxCoolantC = profile.coolant + noise(day, assetIndex, shiftIndex, 5) * 2.0;
+        let shocks = 0;
+        let overloads = 0;
+        let maintenanceHoursRemaining = profile.maintenance - day * (profile.assetId === "FLT-044" ? 2.4 : 1.35) - shiftIndex * 0.25;
+
+        if (profile.assetId === "FLT-017" && shift === "C" && date >= "2026-09-02" && date <= "2026-09-05") {
+          operatorId = "OP-042";
+          fuelLiters *= 1.18;
+          idlePct += 11.5;
+          emptyTravelPct += 9.0;
+        }
+
+        if (profile.assetId === "FLT-023" && date >= "2026-09-04") {
+          const progression = Number(date.slice(-2)) - 3;
+          fuelLiters *= 1.10 + progression * 0.018;
+          maxCoolantC += 7 + progression * 2.0;
+        }
+
+        if (profile.assetId === "FLT-031" && shift === "B" && date >= "2026-08-28" && date <= "2026-09-03") {
+          operatorId = "OP-007";
+          shocks = 3 + ((day + shiftIndex) % 4);
+          avgSpeedKmh += 2.4;
+        } else if (noise(day, assetIndex, shiftIndex, 6) > 0.985) {
+          shocks = 1;
+        }
+
+        if (profile.assetId === "FLT-012" && shift === "A" && date >= "2026-09-06" && date <= "2026-09-07") {
+          operatorId = "OP-015";
+          overloads = date.endsWith("06") ? 2 : 3;
+        }
+
+        rows.push({
+          date,
+          assetId: profile.assetId,
+          operatorId,
+          shift,
+          fuelLiters: round(fuelLiters, 2),
+          idlePct: round(clamp(idlePct, 5, 60), 2),
+          emptyTravelPct: round(clamp(emptyTravelPct, 5, 80), 2),
+          avgSpeedKmh: round(clamp(avgSpeedKmh, 0, 30), 2),
+          maxCoolantC: round(maxCoolantC, 2),
+          shocks,
+          overloads,
+          maintenanceHoursRemaining: round(Math.max(0, maintenanceHoursRemaining), 2)
+        });
       });
-    }
-
-    if (fuelDelta >= 10 && row.current.maxCoolantC >= 100 && row.affectedOperators >= 3) {
-      insights.push({
-        id: `${row.assetId}-mechanical`,
-        assetId: row.assetId,
-        category: "mechanical",
-        severity: row.current.maxCoolantC >= 105 ? "critical" : "high",
-        title: "Possível degradação mecânica",
-        summary: `Consumo ${round(fuelDelta)}% acima do baseline e temperatura máxima de ${row.current.maxCoolantC} °C em múltiplos operadores.`,
-        evidence: [
-          `${row.affectedOperators} operadores afetados na mesma janela`,
-          `Combustível: ${row.baseline.fuelLiters} L → ${row.current.fuelLiters} L/turno`,
-          `Temperatura: ${row.baseline.maxCoolantC} °C → ${row.current.maxCoolantC} °C`,
-          `Idle praticamente estável: ${row.baseline.idlePct}% → ${row.current.idlePct}%`
-        ],
-        probableCause: "Como o padrão persiste com vários operadores e o idle não mudou materialmente, a hipótese comportamental perde força. O ativo deve ser inspecionado antes de responsabilizar o operador.",
-        recommendedAction: "Abrir inspeção técnica do sistema térmico/drivetrain e acompanhar temperatura e consumo até a avaliação de manutenção.",
-        humanMessage: "A IA separa sinais do equipamento de sinais de condução para evitar atribuir ao operador um problema que pode ser da máquina.",
-        score: Math.min(100, Math.round(70 + fuelDelta + (row.current.maxCoolantC - 100) * 2))
-      });
-    }
-
-    if (row.current.shocks >= 3) {
-      insights.push({
-        id: `${row.assetId}-shocks`,
-        assetId: row.assetId,
-        operatorId: row.operatorId,
-        category: "safety",
-        severity: row.current.shocks >= 5 ? "high" : "attention",
-        title: "Aumento de eventos de impacto",
-        summary: `${row.current.shocks} impactos registrados no período, acima do padrão histórico do ativo.`,
-        evidence: [
-          `Impactos baseline: ${row.baseline.shocks}`,
-          `Impactos atuais: ${row.current.shocks}`,
-          `Janela: ${row.period}`,
-          `Concentração: ${row.operatorId ?? "operação"}`
-        ],
-        probableCause: "A concentração temporal e por operador sugere investigar velocidade, rota, piso e técnica de condução antes de qualquer conclusão disciplinar.",
-        recommendedAction: "Revisar os eventos com o operador e o mapa de circulação, checar condições da rota e reforçar condução segura.",
-        humanMessage: "O objetivo do alerta é prevenir acidente e ajudar a corrigir o contexto, não punir automaticamente quem estava operando.",
-        score: Math.min(100, 55 + row.current.shocks * 8)
-      });
-    }
-
-    if (row.current.overloads >= 1) {
-      insights.push({
-        id: `${row.assetId}-overload`,
-        assetId: row.assetId,
-        operatorId: row.operatorId,
-        category: "safety",
-        severity: "high",
-        title: "Tentativas de sobrecarga",
-        summary: `${row.current.overloads} eventos de sobrecarga detectados no período.`,
-        evidence: [
-          `Sobrecargas baseline: ${row.baseline.overloads}`,
-          `Sobrecargas atuais: ${row.current.overloads}`,
-          `Janela: ${row.period}`
-        ],
-        probableCause: "Há uso fora do padrão de carga. É necessário validar se a origem é seleção de equipamento, planejamento da tarefa ou procedimento operacional.",
-        recommendedAction: "Reforçar limite de carga, revisar a tarefa e confirmar se o equipamento selecionado é adequado para o peso movimentado.",
-        humanMessage: "Antes de atribuir causa ao operador, valide também planejamento, escolha do equipamento e informação de carga disponível.",
-        score: Math.min(100, 65 + row.current.overloads * 10)
-      });
-    }
-
-    if (row.current.maintenanceHoursRemaining <= 24) {
-      insights.push({
-        id: `${row.assetId}-maintenance`,
-        assetId: row.assetId,
-        category: "maintenance",
-        severity: row.current.maintenanceHoursRemaining <= 8 ? "critical" : "attention",
-        title: "Manutenção próxima do vencimento",
-        summary: `Restam ${row.current.maintenanceHoursRemaining} horas para a próxima manutenção programada.`,
-        evidence: [
-          `Contador: ${row.current.maintenanceHoursRemaining} h restantes`,
-          `Janela analisada: ${row.period}`,
-          `Sinal presente em ${row.affectedOperators} operadores, portanto não individualizado`
-        ],
-        probableCause: "O contador de manutenção entrou na janela de planejamento. Este insight é preventivo e não indica, sozinho, falha do equipamento.",
-        recommendedAction: "Programar a parada antes de zerar o contador e verificar se existem diagnósticos adicionais associados ao ativo.",
-        humanMessage: "Planejar a parada com antecedência reduz improviso e evita que manutenção preventiva vire corretiva.",
-        score: Math.max(50, 100 - row.current.maintenanceHoursRemaining * 2)
-      });
-    }
+    });
   }
 
-  const order: Record<Severity, number> = { critical: 3, high: 2, attention: 1 };
-  return insights.sort((a, b) => order[b.severity] - order[a.severity] || b.score - a.score);
+  return rows;
 }
 
-export function fleetSummary(insights: Insight[] = analyzeTelemetry()) {
+function mean(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+}
+
+function stdDev(values: number[], avg = mean(values)) {
+  if (values.length <= 1) return 0;
+  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (values.length - 1);
+  return Math.sqrt(variance);
+}
+
+const metricFloor: Record<MetricKey, number> = {
+  fuelLiters: 0.75,
+  idlePct: 1.0,
+  emptyTravelPct: 1.5,
+  avgSpeedKmh: 0.45,
+  maxCoolantC: 0.8,
+  shocks: 0.5,
+  overloads: 0.5
+};
+
+function metricStats(history: HistoricalShiftRecord[], metric: MetricKey): MetricStats {
+  const values = history.map((row) => row[metric]);
+  const avg = mean(values);
+  return { mean: avg, stdDev: Math.max(stdDev(values, avg), metricFloor[metric]), samples: values.length };
+}
+
+function buildBaseline(history: HistoricalShiftRecord[]): Baseline {
+  return {
+    fuelLiters: metricStats(history, "fuelLiters"),
+    idlePct: metricStats(history, "idlePct"),
+    emptyTravelPct: metricStats(history, "emptyTravelPct"),
+    avgSpeedKmh: metricStats(history, "avgSpeedKmh"),
+    maxCoolantC: metricStats(history, "maxCoolantC"),
+    shocks: metricStats(history, "shocks"),
+    overloads: metricStats(history, "overloads")
+  };
+}
+
+const metricMeta: Record<MetricKey, { label: string; unit: string }> = {
+  fuelLiters: { label: "Combustível", unit: "L/turno" },
+  idlePct: { label: "Tempo ocioso", unit: "%" },
+  emptyTravelPct: { label: "Deslocamento vazio", unit: "%" },
+  avgSpeedKmh: { label: "Velocidade média", unit: "km/h" },
+  maxCoolantC: { label: "Temperatura máxima", unit: "°C" },
+  shocks: { label: "Impactos", unit: "eventos" },
+  overloads: { label: "Sobrecargas", unit: "eventos" }
+};
+
+function evidenceFor(row: HistoricalShiftRecord, baseline: Baseline, metric: MetricKey): StatisticalEvidence {
+  const stats = baseline[metric];
+  const zScore = (row[metric] - stats.mean) / stats.stdDev;
+  return {
+    metric,
+    label: metricMeta[metric].label,
+    current: round(row[metric], 2),
+    mean: round(stats.mean, 2),
+    stdDev: round(stats.stdDev, 2),
+    zScore: round(zScore, 2),
+    unit: metricMeta[metric].unit
+  };
+}
+
+function evidenceMap(row: HistoricalShiftRecord, baseline: Baseline) {
+  const metrics: MetricKey[] = ["fuelLiters", "idlePct", "emptyTravelPct", "avgSpeedKmh", "maxCoolantC", "shocks", "overloads"];
+  return Object.fromEntries(metrics.map((metric) => [metric, evidenceFor(row, baseline, metric)])) as Record<MetricKey, StatisticalEvidence>;
+}
+
+function recentBaseline(history: HistoricalShiftRecord[], row: HistoricalShiftRecord) {
+  const peers = history
+    .filter((candidate) => candidate.assetId === row.assetId && candidate.shift === row.shift && candidate.date < row.date && candidate.date < EVALUATION_START)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-LOOKBACK_DAYS);
+  if (peers.length < MIN_BASELINE_SAMPLES) return undefined;
+  return buildBaseline(peers);
+}
+
+function candidateScore(evidence: StatisticalEvidence[], support = 0) {
+  const top = [...evidence].sort((a, b) => Math.abs(b.zScore) - Math.abs(a.zScore)).slice(0, 3);
+  const statistical = top.reduce((sum, item) => sum + Math.min(4.5, Math.abs(item.zScore)), 0) * 8;
+  return Math.round(clamp(35 + statistical + support, 0, 100));
+}
+
+function detectCandidate(row: HistoricalShiftRecord, baseline: Baseline): Candidate[] {
+  const e = evidenceMap(row, baseline);
+  const candidates: Candidate[] = [];
+
+  if (e.fuelLiters.zScore >= 2.2 && e.idlePct.zScore >= 2.2 && e.maxCoolantC.zScore < 2.0) {
+    const selected = [e.fuelLiters, e.idlePct, e.emptyTravelPct];
+    candidates.push({ kind: "efficiency", row, baseline, evidence: selected, score: candidateScore(selected, 5) });
+  }
+
+  if (e.fuelLiters.zScore >= 2.0 && e.maxCoolantC.zScore >= 2.5) {
+    const selected = [e.fuelLiters, e.maxCoolantC, e.idlePct];
+    candidates.push({ kind: "mechanical", row, baseline, evidence: selected, score: candidateScore(selected, 12) });
+  }
+
+  if (row.shocks >= 2 && e.shocks.zScore >= 2.5) {
+    const selected = [e.shocks, e.avgSpeedKmh];
+    candidates.push({ kind: "shocks", row, baseline, evidence: selected, score: candidateScore(selected, 10) });
+  }
+
+  if (row.overloads >= 1 && e.overloads.zScore >= 2.0) {
+    const selected = [e.overloads];
+    candidates.push({ kind: "overload", row, baseline, evidence: selected, score: candidateScore(selected, 18) });
+  }
+
+  if (row.maintenanceHoursRemaining <= 24) {
+    candidates.push({ kind: "maintenance", row, baseline, evidence: [], score: Math.round(clamp(100 - row.maintenanceHoursRemaining * 1.8, 55, 96)) });
+  }
+
+  return candidates;
+}
+
+function periodLabel(rows: HistoricalShiftRecord[]) {
+  const dates = rows.map((row) => row.date).sort();
+  return dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} → ${dates[dates.length - 1]}`;
+}
+
+function formatStat(item: StatisticalEvidence) {
+  const sign = item.zScore >= 0 ? "+" : "";
+  return `${item.label}: ${item.current} ${item.unit} vs. ${item.mean} ± ${item.stdDev} (${sign}${item.zScore}σ)`;
+}
+
+function insightFromGroup(kind: CandidateKind, group: Candidate[]): Insight {
+  const representative = [...group].sort((a, b) => b.score - a.score)[0];
+  const affectedOperators = new Set(group.map((item) => item.row.operatorId));
+  const period = periodLabel(group.map((item) => item.row));
+  const maxAbsZ = Math.max(0, ...group.flatMap((item) => item.evidence.map((metric) => Math.abs(metric.zScore))));
+  const baselineSamples = representative.baseline.fuelLiters.samples;
+  const sharedAnalysis = {
+    method: "rolling-zscore" as const,
+    baselineSamples,
+    lookbackDays: LOOKBACK_DAYS,
+    maxAbsZ: round(maxAbsZ, 2),
+    period,
+    statisticalEvidence: representative.evidence
+  };
+
+  if (kind === "efficiency") {
+    const fuel = representative.evidence.find((item) => item.metric === "fuelLiters")!;
+    const idle = representative.evidence.find((item) => item.metric === "idlePct")!;
+    const excessFuel = Math.max(0, representative.row.fuelLiters - representative.baseline.fuelLiters.mean);
+    const score = Math.max(...group.map((item) => item.score));
+    return {
+      id: `${representative.row.assetId}-efficiency-${representative.row.operatorId}`,
+      assetId: representative.row.assetId,
+      operatorId: representative.row.operatorId,
+      category: "efficiency",
+      severity: "high",
+      title: "Ineficiência fora do padrão histórico",
+      summary: `Consumo e idle desviaram simultaneamente do comportamento aprendido do ativo/turno (${fuel.zScore >= 0 ? "+" : ""}${fuel.zScore}σ e ${idle.zScore >= 0 ? "+" : ""}${idle.zScore}σ).`,
+      evidence: [
+        ...representative.evidence.map(formatStat),
+        `${group.length} turno(s) anômalo(s) no período; concentração em ${representative.row.operatorId}`
+      ],
+      probableCause: "O desvio está concentrado no mesmo contexto de ativo, turno e operador, enquanto a temperatura permanece dentro do comportamento esperado. A hipótese prioritária é fluxo operacional/tempo de espera, não falha mecânica.",
+      recommendedAction: "Revisar períodos de espera e deslocamentos sem carga com o operador e acompanhar os próximos 3 turnos. Se o desvio desaparecer, registrar a melhoria; se persistir, ampliar a investigação.",
+      humanMessage: "Seu turno foi comparado com o histórico da mesma máquina e do mesmo turno. O objetivo é mostrar onde pequenas mudanças podem reduzir desperdício, sem julgamento automático.",
+      potentialSavingsLitersPerShift: round(excessFuel, 1),
+      score,
+      analysis: sharedAnalysis
+    };
+  }
+
+  if (kind === "mechanical") {
+    const fuel = representative.evidence.find((item) => item.metric === "fuelLiters")!;
+    const temperature = representative.evidence.find((item) => item.metric === "maxCoolantC")!;
+    const score = Math.max(...group.map((item) => item.score));
+    return {
+      id: `${representative.row.assetId}-mechanical`,
+      assetId: representative.row.assetId,
+      category: "mechanical",
+      severity: Math.max(...group.map((item) => item.row.maxCoolantC)) >= 105 ? "critical" : "high",
+      title: "Padrão compatível com degradação do ativo",
+      summary: `Combustível e temperatura saíram do baseline ao mesmo tempo (${fuel.zScore >= 0 ? "+" : ""}${fuel.zScore}σ e ${temperature.zScore >= 0 ? "+" : ""}${temperature.zScore}σ).`,
+      evidence: [
+        ...representative.evidence.map(formatStat),
+        `${affectedOperators.size} operador(es) afetados no período ${period}`
+      ],
+      probableCause: "O padrão aparece em múltiplos operadores/turnos e combina aumento de consumo com temperatura elevada. Isso reduz a hipótese de comportamento individual e aumenta a prioridade de inspeção do ativo.",
+      recommendedAction: "Abrir inspeção técnica do sistema térmico/drivetrain e acompanhar consumo e temperatura até a avaliação de manutenção.",
+      humanMessage: "A análise separa sinais da máquina de sinais de condução para evitar atribuir ao operador um desvio que pode vir do equipamento.",
+      score,
+      analysis: sharedAnalysis
+    };
+  }
+
+  if (kind === "shocks") {
+    const shocks = representative.evidence.find((item) => item.metric === "shocks")!;
+    const score = Math.max(...group.map((item) => item.score));
+    return {
+      id: `${representative.row.assetId}-shocks-${representative.row.operatorId}`,
+      assetId: representative.row.assetId,
+      operatorId: representative.row.operatorId,
+      category: "safety",
+      severity: "high",
+      title: "Impactos muito acima do baseline",
+      summary: `${representative.row.shocks} impactos no turno (${shocks.zScore >= 0 ? "+" : ""}${shocks.zScore}σ em relação ao histórico comparável).`,
+      evidence: [...representative.evidence.map(formatStat), `${group.length} ocorrência(s) anômala(s) no período ${period}`],
+      probableCause: "A concentração por operador e o aumento de velocidade média justificam investigar técnica de condução, rota, piso e contexto da tarefa antes de qualquer conclusão disciplinar.",
+      recommendedAction: "Revisar os eventos com o operador, checar condições da rota e reforçar condução segura. Acompanhar a tendência após a orientação.",
+      humanMessage: "O alerta serve para prevenir acidentes e entender o contexto. Ele não deve ser usado isoladamente para punição.",
+      score,
+      analysis: sharedAnalysis
+    };
+  }
+
+  if (kind === "overload") {
+    const overload = representative.evidence.find((item) => item.metric === "overloads")!;
+    const score = Math.max(...group.map((item) => item.score));
+    return {
+      id: `${representative.row.assetId}-overload-${representative.row.operatorId}`,
+      assetId: representative.row.assetId,
+      operatorId: representative.row.operatorId,
+      category: "safety",
+      severity: "high",
+      title: "Sobrecarga fora do comportamento normal",
+      summary: `${representative.row.overloads} evento(s) de sobrecarga no turno, desvio de ${overload.zScore >= 0 ? "+" : ""}${overload.zScore}σ.`,
+      evidence: [...representative.evidence.map(formatStat), `Período detectado: ${period}`],
+      probableCause: "O evento foge do histórico da mesma máquina/turno. É necessário validar planejamento da tarefa, escolha do equipamento, informação de carga e procedimento operacional.",
+      recommendedAction: "Reforçar limite de carga e confirmar se o equipamento selecionado é adequado para a tarefa antes de repetir a movimentação.",
+      humanMessage: "Antes de atribuir a causa ao operador, valide também planejamento, equipamento e informação de carga disponível.",
+      score,
+      analysis: sharedAnalysis
+    };
+  }
+
+  const remaining = Math.min(...group.map((item) => item.row.maintenanceHoursRemaining));
+  const score = Math.max(...group.map((item) => item.score));
+  return {
+    id: `${representative.row.assetId}-maintenance`,
+    assetId: representative.row.assetId,
+    category: "maintenance",
+    severity: remaining <= 8 ? "critical" : "attention",
+    title: "Manutenção entrou na janela de planejamento",
+    summary: `O contador chegou a ${round(remaining, 1)} h restantes no período analisado.`,
+    evidence: [
+      `Menor contador observado: ${round(remaining, 1)} h restantes`,
+      `Baseline estatístico calculado com ${baselineSamples} turnos anteriores do mesmo ativo/turno`,
+      `Período detectado: ${period}`
+    ],
+    probableCause: "Este insight vem do contador de manutenção, não de inferência sobre falha. A análise estatística continua disponível para verificar se surgiram sinais anormais associados.",
+    recommendedAction: "Programar a parada antes de zerar o contador e revisar se existem diagnósticos ou desvios de temperatura/consumo associados.",
+    humanMessage: "Planejar a parada com antecedência reduz improviso e ajuda a evitar manutenção corretiva.",
+    score,
+    analysis: sharedAnalysis
+  };
+}
+
+export function analyzeHistoricalTelemetry(history: HistoricalShiftRecord[] = buildDemoHistory()) {
+  const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date) || a.assetId.localeCompare(b.assetId) || a.shift.localeCompare(b.shift));
+  const candidates: Candidate[] = [];
+
+  for (const row of sorted) {
+    if (row.date < EVALUATION_START) continue;
+    const baseline = recentBaseline(sorted, row);
+    if (!baseline) continue;
+    candidates.push(...detectCandidate(row, baseline));
+  }
+
+  const groups = new Map<string, Candidate[]>();
+  for (const candidate of candidates) {
+    const operatorScoped = candidate.kind === "efficiency" || candidate.kind === "shocks" || candidate.kind === "overload";
+    const key = `${candidate.row.assetId}:${candidate.kind}:${operatorScoped ? candidate.row.operatorId : "asset"}`;
+    const group = groups.get(key) ?? [];
+    group.push(candidate);
+    groups.set(key, group);
+  }
+
+  const insights = [...groups.entries()]
+    .map(([key, group]) => insightFromGroup(key.split(":")[1] as CandidateKind, group))
+    .sort((a, b) => {
+      const severityOrder: Record<Severity, number> = { critical: 3, high: 2, attention: 1 };
+      return severityOrder[b.severity] - severityOrder[a.severity] || b.score - a.score;
+    });
+
+  return {
+    insights,
+    analysis: {
+      method: "rolling-zscore" as const,
+      historyDays: 30,
+      lookbackDays: LOOKBACK_DAYS,
+      minBaselineSamples: MIN_BASELINE_SAMPLES,
+      evaluationStart: EVALUATION_START,
+      recordsAnalyzed: sorted.length,
+      candidateEvents: candidates.length
+    }
+  };
+}
+
+export function fleetSummary(insights: Insight[]) {
+  const affectedAssets = new Set(insights.map((insight) => insight.assetId));
   return {
     assets: demoFleet.length,
-    healthyAssets: demoFleet.filter((asset) => asset.status === "healthy").length,
+    healthyAssets: demoFleet.length - affectedAssets.size,
     activeInsights: insights.length,
     criticalInsights: insights.filter((insight) => insight.severity === "critical").length,
-    potentialSavingsLitersPerShift: round(insights.reduce((total, insight) => total + (insight.potentialSavingsLitersPerShift ?? 0), 0))
+    potentialSavingsLitersPerShift: round(insights.reduce((total, insight) => total + (insight.potentialSavingsLitersPerShift ?? 0), 0), 1)
   };
+}
+
+export function fleetWithStatus(insights: Insight[]) {
+  const severityOrder: Record<Severity, number> = { critical: 3, high: 2, attention: 1 };
+  return demoFleet.map((asset) => {
+    const relevant = insights.filter((insight) => insight.assetId === asset.assetId);
+    const top = relevant.sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity])[0];
+    return { ...asset, status: top?.severity ?? "healthy" };
+  });
 }
