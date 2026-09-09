@@ -1,0 +1,97 @@
+name: Explanation CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  explanation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: Explanation fallback smoke test
+        env:
+          OPENAI_API_KEY: ""
+        run: |
+          npm run start > /tmp/tech4change-explanation.log 2>&1 &
+          APP_PID=$!
+          trap 'kill $APP_PID || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:3000/api/telemetry -o /tmp/telemetry.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          node <<'NODE'
+          const fs = require('fs');
+          const telemetry = JSON.parse(fs.readFileSync('/tmp/telemetry.json', 'utf8'));
+          const insightId = telemetry.insights?.[0]?.id;
+          if (!insightId) throw new Error('No telemetry insight available for explanation test');
+          fs.writeFileSync('/tmp/explanation-request.json', JSON.stringify({ insightId }));
+          NODE
+
+          curl -fsS \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/explanation-request.json \
+            http://127.0.0.1:3000/api/telemetry/explain \
+            -o /tmp/explanation.json
+
+          node <<'NODE'
+          const payload = require('/tmp/explanation.json');
+          if (payload.schemaVersion !== 'telemetry-explanation-v1') throw new Error('Unexpected explanation schema');
+          if (payload.mode !== 'deterministic') throw new Error('CI without API key must use deterministic fallback');
+          if (!payload.insightId) throw new Error('Explanation lost insight identity');
+          const required = ['headline', 'explanation', 'whyItMatters', 'uncertainty'];
+          for (const key of required) {
+            if (typeof payload.explanation?.[key] !== 'string' || payload.explanation[key].length < 5) {
+              throw new Error(`Missing explanation field: ${key}`);
+            }
+          }
+          if (payload.guardrails?.evidenceBound !== true) throw new Error('Evidence-bound guardrail missing');
+          if (payload.guardrails?.noAutomaticDecision !== true) throw new Error('Human decision guardrail missing');
+          if (payload.guardrails?.noRootCauseClaim !== true) throw new Error('Root-cause guardrail missing');
+          if (payload.guardrails?.fallbackAvailable !== true) throw new Error('Fallback guardrail missing');
+          const uncertainty = payload.explanation.uncertainty.toLowerCase();
+          if (!uncertainty.includes('hipótese') && !uncertainty.includes('não prova')) {
+            throw new Error('Fallback must communicate uncertainty');
+          }
+          console.log(JSON.stringify({
+            mode: payload.mode,
+            schema: payload.schemaVersion,
+            insightId: payload.insightId,
+            guardrails: payload.guardrails
+          }));
+          NODE
+
+          STATUS=$(curl -sS -o /tmp/not-found.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data '{"insightId":"does-not-exist"}' \
+            http://127.0.0.1:3000/api/telemetry/explain)
+          test "$STATUS" = "404"
+
+          STATUS=$(curl -sS -o /tmp/bad-request.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data '{}' \
+            http://127.0.0.1:3000/api/telemetry/explain)
+          test "$STATUS" = "400"
