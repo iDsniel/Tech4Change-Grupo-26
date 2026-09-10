@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { DemoMode } from "@/components/DemoMode";
+import { SpotlightController } from "@/components/SpotlightController";
 import "./globals.css";
 import "./demo-mode.css";
+import "./polish.css";
 
 export const metadata: Metadata = {
   title: "Copiloto Operacional AI | Tech4Change",
@@ -13,6 +15,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="pt-BR">
       <body>
         {children}
+        <SpotlightController />
         <DemoMode />
       </body>
     </html>
