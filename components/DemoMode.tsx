@@ -46,7 +46,7 @@ function openActionForm() {
   let attempts = 0;
   const timer = window.setInterval(() => {
     attempts += 1;
-    const button = findButton("Registrar ação realizada");
+    const button = findButton("Registrar ação realizada") ?? findButton("Registrar nova ação");
     if (button) {
       button.click();
       window.clearInterval(timer);
