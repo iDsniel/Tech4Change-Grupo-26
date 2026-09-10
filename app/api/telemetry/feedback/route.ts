@@ -27,6 +27,17 @@ async function loadContext() {
   return { records, insights: pipeline.insights };
 }
 
+function registrationContext(insight: ReturnType<typeof runTelemetryPipeline>["insights"][number]) {
+  const period = insight.analysis?.period;
+  const suggestedAppliedAt = period ? (period.split(" → ")[1] ?? period.split(" → ")[0]) : new Date().toISOString().slice(0, 10);
+  return {
+    category: insight.category,
+    recommendedAction: insight.recommendedAction,
+    suggestedAppliedAt,
+    demoDateNote: "A data sugerida é o fim da janela anômala para que a fixture sintética tenha turnos posteriores disponíveis."
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -42,26 +53,29 @@ export async function GET(request: Request) {
     });
 
     if (insightId && assessments.length === 0) {
-      const insightExists = insights.some((item) => item.id === insightId);
+      const insight = insights.find((item) => item.id === insightId);
       return NextResponse.json(
         {
           schemaVersion: "telemetry-feedback-v1",
           insightId,
           tracked: false,
           storage: { engine: "sqlite", persistedInterventions: 0 },
-          message: insightExists
+          registration: insight ? registrationContext(insight) : undefined,
+          message: insight
             ? "Ainda não existe uma intervenção registrada para este insight."
             : "Insight não encontrado no dataset atual."
         },
-        { status: insightExists ? 200 : 404 }
+        { status: insight ? 200 : 404 }
       );
     }
 
     const health = interventionStoreHealth();
+    const insight = insightId ? insights.find((item) => item.id === insightId) : undefined;
     return NextResponse.json({
       schemaVersion: "telemetry-feedback-v1",
       tracked: assessments.length > 0,
       storage: { engine: health.engine, persistedInterventions: health.records },
+      registration: insight ? registrationContext(insight) : undefined,
       assessments,
       summary: {
         registeredInterventions: health.records,
