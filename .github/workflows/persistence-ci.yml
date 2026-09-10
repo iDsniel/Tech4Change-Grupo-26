@@ -1,0 +1,115 @@
+name: Persistence CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  persistence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: SQLite persistence smoke test
+        env:
+          INTERVENTION_DB_PATH: /tmp/tech4change-persistence.sqlite
+        run: |
+          rm -f "$INTERVENTION_DB_PATH" "$INTERVENTION_DB_PATH-shm" "$INTERVENTION_DB_PATH-wal"
+
+          start_app() {
+            npm run start > /tmp/tech4change-persistence.log 2>&1 &
+            APP_PID=$!
+            for attempt in {1..20}; do
+              if curl -fsS http://127.0.0.1:3000/api/telemetry/interventions -o /tmp/interventions-before.json; then
+                return 0
+              fi
+              sleep 1
+            done
+            cat /tmp/tech4change-persistence.log
+            return 1
+          }
+
+          start_app
+
+          node <<'NODE'
+          const payload = require('/tmp/interventions-before.json');
+          if (payload.schemaVersion !== 'telemetry-intervention-v1') throw new Error('Unexpected intervention schema');
+          if (payload.storage?.engine !== 'sqlite') throw new Error('SQLite store not active');
+          if (payload.interventions?.length !== 3) throw new Error(`Expected 3 seeded interventions; got ${payload.interventions?.length}`);
+          NODE
+
+          curl -fsS \
+            -H 'Content-Type: application/json' \
+            -d '{"insightId":"FLT-023-mechanical","appliedAt":"2026-09-06","targetTurns":3,"actionType":"maintenance_action","actorRole":"supervisor","note":"Inspeção técnica executada e ativo liberado para acompanhamento pós-ação."}' \
+            http://127.0.0.1:3000/api/telemetry/interventions \
+            -o /tmp/intervention-created.json
+
+          node <<'NODE'
+          const payload = require('/tmp/intervention-created.json');
+          if (!payload.persisted) throw new Error('Intervention was not persisted');
+          if (payload.storage?.engine !== 'sqlite') throw new Error('Created intervention did not report SQLite');
+          if (!payload.intervention?.id) throw new Error('Persisted intervention has no id');
+          require('fs').writeFileSync('/tmp/intervention-id.txt', payload.intervention.id);
+          NODE
+
+          CREATED_ID=$(cat /tmp/intervention-id.txt)
+          curl -fsS "http://127.0.0.1:3000/api/telemetry/interventions?insightId=FLT-023-mechanical" -o /tmp/interventions-after-create.json
+          node <<'NODE'
+          const fs = require('fs');
+          const id = fs.readFileSync('/tmp/intervention-id.txt', 'utf8').trim();
+          const payload = require('/tmp/interventions-after-create.json');
+          if (!payload.interventions?.some((item) => item.id === id)) throw new Error('Created intervention missing before restart');
+          NODE
+
+          kill "$APP_PID"
+          wait "$APP_PID" 2>/dev/null || true
+          sleep 1
+
+          start_app
+
+          curl -fsS "http://127.0.0.1:3000/api/telemetry/interventions?insightId=FLT-023-mechanical" -o /tmp/interventions-after-restart.json
+          node <<'NODE'
+          const fs = require('fs');
+          const id = fs.readFileSync('/tmp/intervention-id.txt', 'utf8').trim();
+          const payload = require('/tmp/interventions-after-restart.json');
+          if (!payload.interventions?.some((item) => item.id === id)) throw new Error('Intervention did not survive application restart');
+          NODE
+
+          curl -fsS "http://127.0.0.1:3000/api/telemetry/feedback?insightId=FLT-023-mechanical" -o /tmp/feedback-persisted.json
+          node <<'NODE'
+          const payload = require('/tmp/feedback-persisted.json');
+          if (!payload.tracked) throw new Error('Persisted intervention did not activate feedback tracking');
+          if (payload.storage?.engine !== 'sqlite') throw new Error('Feedback is not reading the SQLite store');
+          NODE
+
+          STATUS=$(curl -sS -o /tmp/invalid-intervention.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d '{"insightId":"DOES-NOT-EXIST","appliedAt":"2026-09-06","targetTurns":3,"actionType":"process_change","actorRole":"supervisor","note":"Teste de insight inexistente."}' \
+            http://127.0.0.1:3000/api/telemetry/interventions)
+          test "$STATUS" = "404"
+
+          STATUS=$(curl -sS -o /tmp/invalid-contract.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d '{"insightId":"FLT-023-mechanical"}' \
+            http://127.0.0.1:3000/api/telemetry/interventions)
+          test "$STATUS" = "422"
+
+          kill "$APP_PID" || true
