@@ -15,9 +15,12 @@ function buttons() {
   return Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
 }
 
+function findButton(text: string) {
+  return buttons().find((item) => item.textContent?.includes(text));
+}
+
 function clickButton(text: string) {
-  const button = buttons().find((item) => item.textContent?.includes(text));
-  button?.click();
+  findButton(text)?.click();
 }
 
 function insightCard(assetId: string) {
@@ -36,6 +39,21 @@ function selectInsight(assetId: string) {
   manager();
   clickButton("Todos");
   window.setTimeout(() => insightCard(assetId)?.click(), 80);
+}
+
+function openActionForm() {
+  selectInsight("FLT-023");
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    attempts += 1;
+    const button = findButton("Registrar ação realizada");
+    if (button) {
+      button.click();
+      window.clearInterval(timer);
+    } else if (attempts >= 20) {
+      window.clearInterval(timer);
+    }
+  }, 120);
 }
 
 export function DemoMode() {
@@ -88,9 +106,9 @@ export function DemoMode() {
     {
       kicker: "6 · AGIR AO VIVO",
       title: "Registre uma nova ação na FLT-023",
-      narration: "Agora demonstre interação real: abra o formulário, registre a ação executada e salve. Ela fica persistida no SQLite e passa a alimentar o acompanhamento. Se ainda não houver turnos suficientes, o sistema informa que está aguardando dados em vez de inventar resultado.",
-      prepare: () => selectInsight("FLT-023"),
-      target: () => articleContaining("Feedback pós-recomendação")
+      narration: "O formulário já abre com o contexto sugerido. Revise a ação, o responsável e a data; depois clique em Salvar e acompanhar. O registro fica persistido no SQLite. Se não houver turnos suficientes depois da ação, o sistema informa que está aguardando dados em vez de inventar resultado.",
+      prepare: openActionForm,
+      target: () => articleContaining("Registrar ação realizada") ?? articleContaining("Feedback pós-recomendação")
     },
     {
       kicker: "FECHAMENTO",
@@ -110,12 +128,19 @@ export function DemoMode() {
     document.querySelectorAll(".demoFocus").forEach((node) => node.classList.remove("demoFocus"));
     next.prepare?.();
 
-    window.setTimeout(() => {
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
       const target = next.target();
-      if (!target) return;
-      target.classList.add("demoFocus");
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 260);
+      if (target) {
+        window.clearInterval(timer);
+        document.querySelectorAll(".demoFocus").forEach((node) => node.classList.remove("demoFocus"));
+        target.classList.add("demoFocus");
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (attempts >= 20) {
+        window.clearInterval(timer);
+      }
+    }, 120);
   }, [steps]);
 
   const start = useCallback(() => {
