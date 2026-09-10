@@ -172,12 +172,12 @@ export default function Home() {
         <>
           <section className="kpiGrid">
             <article className="kpiCard">
-              <div className="kpiIcon"><Gauge size={20} /></div>
-              <div><span>Ativos monitorados</span><strong>{data.summary.assets}</strong><small>{data.summary.healthyAssets} sem desvio relevante</small></div>
-            </article>
-            <article className="kpiCard">
               <div className="kpiIcon"><Sparkles size={20} /></div>
               <div><span>Insights ativos</span><strong>{data.summary.activeInsights}</strong><small>{data.summary.criticalInsights} prioridade crítica</small></div>
+            </article>
+            <article className="kpiCard">
+              <div className="kpiIcon"><Gauge size={20} /></div>
+              <div><span>Ativos monitorados</span><strong>{data.summary.assets}</strong><small>{data.summary.healthyAssets} sem desvio relevante</small></div>
             </article>
             <article className="kpiCard">
               <div className="kpiIcon"><BrainCircuit size={20} /></div>
@@ -296,7 +296,7 @@ export default function Home() {
           <div className="operatorHero">
             <div className="avatar"><HardHat size={28} /></div>
             <div><span>MEU TURNO · OP-042</span><h2>Seu copiloto de operação</h2><p>Feedback para ajudar você a operar com mais segurança e eficiência.</p></div>
-            <div className="operatorScore"><strong>88</strong><span>desempenho</span></div>
+            <div className="operatorScore operatorContext"><ShieldCheck size={18} /><strong>Contextual</strong><span>sem ranking individual</span></div>
           </div>
 
           <div className="coachGrid">
