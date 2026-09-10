@@ -146,18 +146,16 @@ textarea:focus-visible,
   background: var(--panel);
   box-shadow: none;
 }
-.kpiCard:nth-child(2) {
-  order: -1;
+.kpiCard:nth-child(1) {
   grid-column: span 4;
   background: var(--panel-2);
   border-color: rgba(127,231,216,.18);
 }
-.kpiCard:nth-child(1) { grid-column: span 3; }
+.kpiCard:nth-child(2) { grid-column: span 3; }
 .kpiCard:nth-child(3) { grid-column: span 3; }
 .kpiCard:nth-child(4) { grid-column: span 2; }
-.kpiCard:nth-child(2)::marker { content: none; }
-.kpiCard:nth-child(2) strong { font-size: 31px; color: #eafffc; }
-.kpiCard:nth-child(2) .kpiIcon {
+.kpiCard:nth-child(1) strong { font-size: 31px; color: #eafffc; }
+.kpiCard:nth-child(1) .kpiIcon {
   color: #07110f;
   background: var(--cyan);
   border-color: transparent;
@@ -279,6 +277,14 @@ textarea:focus-visible,
 .operatorHero { border-bottom-color: var(--line); }
 .avatar { border-radius: 11px; background: #122027; }
 .operatorScore { border-radius: 10px; background: #11171e; }
+.operatorContext {
+  min-width: 126px;
+  gap: 3px;
+  color: var(--cyan);
+}
+.operatorContext svg { color: var(--cyan); }
+.operatorContext strong { color: #dffaf6; font-size: 12px; letter-spacing: -.01em; }
+.operatorContext span { color: #7f909f; font-size: 8px; white-space: nowrap; }
 .coachGrid { gap: 10px; }
 .coachCard { border-radius: 10px; background: #10161c; }
 .coachMessage,
@@ -447,7 +453,7 @@ textarea:focus-visible,
   .hero { align-items: flex-start; }
   .kpiGrid { grid-template-columns: 1fr 1fr; }
   .kpiCard { min-height: 94px; }
-  .kpiCard:nth-child(2) strong { font-size: 24px; }
+  .kpiCard:nth-child(1) strong { font-size: 24px; }
   .insightsPane,
   .detailPane,
   .operatorView { border-radius: 12px; }
