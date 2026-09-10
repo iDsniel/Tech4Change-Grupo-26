@@ -17,11 +17,19 @@ import {
 import type { FeedbackAssessment, InterventionRecord } from "@/lib/feedbackLoop";
 import type { InsightCategory } from "@/lib/telemetry";
 
+type RegistrationContext = {
+  category: InsightCategory;
+  recommendedAction: string;
+  suggestedAppliedAt: string;
+  demoDateNote: string;
+};
+
 type FeedbackResponse = {
   schemaVersion: "telemetry-feedback-v1";
   tracked: boolean;
   message?: string;
   storage?: { engine: string; persistedInterventions: number };
+  registration?: RegistrationContext;
   assessments?: FeedbackAssessment[];
 };
 
@@ -54,61 +62,43 @@ const actionLabels: Record<InterventionRecord["actionType"], string> = {
   process_change: "Mudança de processo"
 };
 
-export function FeedbackLoop({
-  insightId,
-  category,
-  recommendedAction,
-  suggestedAppliedAt
-}: {
-  insightId: string;
-  category: InsightCategory;
-  recommendedAction: string;
-  suggestedAppliedAt?: string;
-}) {
+export function FeedbackLoop({ insightId }: { insightId: string }) {
   const [payload, setPayload] = useState<FeedbackResponse | null>(null);
   const [error, setError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
-  const [appliedAt, setAppliedAt] = useState(suggestedAppliedAt || new Date().toISOString().slice(0, 10));
-  const [actionType, setActionType] = useState<InterventionRecord["actionType"]>(actionTypeByCategory[category]);
+  const [appliedAt, setAppliedAt] = useState("");
+  const [actionType, setActionType] = useState<InterventionRecord["actionType"]>("process_change");
   const [actorRole, setActorRole] = useState("supervisor");
   const [targetTurns, setTargetTurns] = useState(3);
-  const [note, setNote] = useState(recommendedAction);
+  const [note, setNote] = useState("");
 
-  const loadFeedback = useCallback(() => {
-    let cancelled = false;
-    setPayload(null);
+  const loadFeedback = useCallback(async () => {
     setError("");
-
-    fetch(`/api/telemetry/feedback?insightId=${encodeURIComponent(insightId)}`)
-      .then(async (response) => {
-        const body = (await response.json()) as FeedbackResponse;
-        if (!response.ok && response.status !== 404) throw new Error("Falha ao carregar acompanhamento");
-        return body;
-      })
-      .then((body) => {
-        if (!cancelled) setPayload(body);
-      })
-      .catch((cause: Error) => {
-        if (!cancelled) setError(cause.message);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const response = await fetch(`/api/telemetry/feedback?insightId=${encodeURIComponent(insightId)}`);
+      const body = (await response.json()) as FeedbackResponse;
+      if (!response.ok && response.status !== 404) throw new Error("Falha ao carregar acompanhamento");
+      setPayload(body);
+      if (body.registration) {
+        setAppliedAt(body.registration.suggestedAppliedAt);
+        setActionType(actionTypeByCategory[body.registration.category]);
+        setNote(body.registration.recommendedAction);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Falha ao carregar acompanhamento");
+    }
   }, [insightId]);
 
   useEffect(() => {
+    setPayload(null);
     setFormOpen(false);
     setSaveMessage("");
-    setAppliedAt(suggestedAppliedAt || new Date().toISOString().slice(0, 10));
-    setActionType(actionTypeByCategory[category]);
     setActorRole("supervisor");
     setTargetTurns(3);
-    setNote(recommendedAction);
-    return loadFeedback();
-  }, [category, insightId, loadFeedback, recommendedAction, suggestedAppliedAt]);
+    void loadFeedback();
+  }, [insightId, loadFeedback]);
 
   const latest = useMemo(() => payload?.assessments?.[0], [payload]);
 
@@ -128,7 +118,7 @@ export function FeedbackLoop({
       if (!response.ok) throw new Error(body.issues?.join(" · ") || body.message || "Não foi possível registrar a ação");
       setSaveMessage(`Ação ${body.intervention.id} persistida no SQLite.`);
       setFormOpen(false);
-      loadFeedback();
+      await loadFeedback();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível registrar a ação");
     } finally {
@@ -165,7 +155,7 @@ export function FeedbackLoop({
           <small>O que foi realizado</small>
           <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} maxLength={600} required />
         </label>
-        <small>Na demo, a data sugerida é o fim da janela anômala para que existam turnos sintéticos posteriores. Em produção, use a data real da intervenção.</small>
+        {payload?.registration?.demoDateNote && <small>{payload.registration.demoDateNote} Em produção, use a data real.</small>}
         <div style={{ display: "flex", gap: 8 }}>
           <button type="submit" className="active" disabled={saving}>{saving ? "Salvando…" : "Salvar e acompanhar"}</button>
           <button type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
@@ -179,7 +169,6 @@ export function FeedbackLoop({
       <article className="aiConclusion">
         <div className="aiTitle"><RefreshCw size={20} /> <strong>Feedback pós-recomendação</strong></div>
         <p>{error}</p>
-        {registrationForm()}
       </article>
     );
   }
@@ -199,8 +188,9 @@ export function FeedbackLoop({
         <div className="aiTitle"><Clock3 size={20} /> <strong>Feedback pós-recomendação</strong></div>
         <p>{payload.message ?? "Ainda não existe uma intervenção registrada para este insight."}</p>
         <small><Database size={14} style={{ verticalAlign: "-2px", marginRight: 5 }} />SQLite ativo · o acompanhamento começa depois que uma ação é registrada.</small>
+        {error && <p>{error}</p>}
         {saveMessage && <p>{saveMessage}</p>}
-        {!formOpen && <button style={{ marginTop: 12 }} onClick={() => setFormOpen(true)}><PlusCircle size={15} /> Registrar ação realizada</button>}
+        {!formOpen && payload.registration && <button style={{ marginTop: 12 }} onClick={() => setFormOpen(true)}><PlusCircle size={15} /> Registrar ação realizada</button>}
         {registrationForm()}
       </article>
     );
@@ -248,8 +238,9 @@ export function FeedbackLoop({
         </div>
       )}
 
+      {error && <p>{error}</p>}
       {saveMessage && <p>{saveMessage}</p>}
-      {!formOpen && <button style={{ marginTop: 12 }} onClick={() => setFormOpen(true)}><PlusCircle size={15} /> Registrar nova ação</button>}
+      {!formOpen && payload.registration && <button style={{ marginTop: 12 }} onClick={() => setFormOpen(true)}><PlusCircle size={15} /> Registrar nova ação</button>}
       {registrationForm()}
 
       <small style={{ display: "block", marginTop: 12 }}>
