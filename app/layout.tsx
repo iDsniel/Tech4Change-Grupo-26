@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { DemoMode } from "@/components/DemoMode";
 import "./globals.css";
+import "./demo-mode.css";
 
 export const metadata: Metadata = {
   title: "Copiloto Operacional AI | Tech4Change",
@@ -9,7 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        {children}
+        <DemoMode />
+      </body>
     </html>
   );
 }

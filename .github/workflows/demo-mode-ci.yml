@@ -1,0 +1,63 @@
+name: Demo Mode CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  demo-mode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: Demo mode smoke test
+        run: |
+          grep -q 'Iniciar demonstração' components/DemoMode.tsx
+          grep -q 'FLT-017' components/DemoMode.tsx
+          grep -q 'FLT-023' components/DemoMode.tsx
+          grep -q 'Copiloto · explicação das evidências' components/DemoMode.tsx
+          grep -q 'Feedback pós-recomendação' components/DemoMode.tsx
+          grep -q 'Registrar ação realizada' components/DemoMode.tsx
+          grep -q 'demoFocus' app/demo-mode.css
+          grep -q 'DemoMode' app/layout.tsx
+
+          npm run start > /tmp/tech4change-demo.log 2>&1 &
+          APP_PID=$!
+          trap 'kill $APP_PID || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:3000 -o /tmp/home.html; then
+              break
+            fi
+            sleep 1
+          done
+
+          test -s /tmp/home.html
+          grep -q 'Iniciar demonstração' /tmp/home.html
+
+          curl -fsS http://127.0.0.1:3000/api/telemetry -o /tmp/telemetry.json
+          node <<'NODE'
+          const payload = require('/tmp/telemetry.json');
+          const ids = new Set(payload.insights?.map((item) => item.id));
+          if (!ids.has('FLT-017-efficiency-OP-042')) throw new Error('Primary demo insight FLT-017 is unavailable');
+          if (!ids.has('FLT-023-mechanical')) throw new Error('Live-action demo insight FLT-023 is unavailable');
+          console.log(JSON.stringify({ demoMode: true, primaryInsight: 'FLT-017-efficiency-OP-042', liveActionInsight: 'FLT-023-mechanical', insights: ids.size }));
+          NODE
