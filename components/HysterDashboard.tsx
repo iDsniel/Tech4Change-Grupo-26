@@ -1,18 +1,41 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  BrainCircuit,
+  CalendarRange,
+  ChevronRight,
+  ClipboardList,
+  Database,
+  Gauge,
+  Settings2,
+  Sparkles,
+  Truck,
+  UsersRound
+} from "lucide-react";
 import { analyzeHyster, validateHyster } from "@/lib/hyster";
 import { analyzeOperationalAI, type OperationalAIInsight } from "@/lib/operationalAI";
 import { addDataset, combineDatasets, emptyWorkspace, validateWorkspace, type Workspace } from "@/lib/operations";
 import { readWorkspace, saveWorkspace } from "@/lib/operationsStorage";
-import OperationsConsole, { type OperationsTab } from "./OperationsConsole";
+import OperationsConsole from "./OperationsConsole";
 import WorkforceCards from "./WorkforceCards";
 import OperationalAIPanel from "./OperationalAIPanel";
 import "./hyster.css";
 
 const fmt = (value: number | null | undefined, digits = 2) => value == null ? "Sem dados" : value.toLocaleString("pt-BR", { maximumFractionDigits: digits });
 
-type DashboardTab = OperationsTab | "ai";
+type ViewKey = "summary" | "fleet" | "ai" | "cards" | "orders" | "base";
+
+const navItems: Array<{ key: ViewKey; label: string; icon: React.ReactNode }> = [
+  { key: "summary", label: "Resumo", icon: <Activity size={17} /> },
+  { key: "fleet", label: "Frota", icon: <Truck size={17} /> },
+  { key: "ai", label: "Desvios", icon: <BrainCircuit size={17} /> },
+  { key: "cards", label: "Cartões", icon: <UsersRound size={17} /> },
+  { key: "orders", label: "Ordens", icon: <ClipboardList size={17} /> },
+  { key: "base", label: "Base", icon: <Database size={17} /> }
+];
 
 const containsHistoricalDataset = (value: unknown) => {
   if (!value || typeof value !== "object") return false;
@@ -27,11 +50,12 @@ export default function HysterDashboard() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("");
-  const [tab, setTab] = useState<DashboardTab>("overview");
+  const [view, setView] = useState<ViewKey>("summary");
   const [suggestion, setSuggestion] = useState<{ assetId: string; title: string }>();
   const [month, setMonth] = useState("all");
   const [asset, setAsset] = useState("all");
   const [error, setError] = useState("");
+  const [focusInsightId, setFocusInsightId] = useState<string>();
 
   const data = useMemo(() => combineDatasets(workspace.datasets), [workspace.datasets]);
   const report = useMemo(() => data ? analyzeHyster(data, month, asset) : null, [data, month, asset]);
@@ -39,13 +63,14 @@ export default function HysterDashboard() {
   const filteredAI = useMemo(() => ai?.insights.filter((insight) =>
     (asset === "all" || insight.assetId === asset) && (month === "all" || insight.date.startsWith(month))
   ) ?? [], [ai, asset, month]);
+  const summarySelected = filteredAI.find((item) => item.id === focusInsightId) ?? filteredAI[0];
 
   useEffect(() => {
     readWorkspace()
       .then((loaded) => {
         setWorkspace(loaded);
         setReady(true);
-        setSaved("Histórico recuperado deste navegador.");
+        setSaved("Base recuperada deste navegador.");
       })
       .catch((cause: Error) => {
         setError(cause.message);
@@ -78,13 +103,14 @@ export default function HysterDashboard() {
     try {
       if (file.size > 50 * 1024 * 1024) throw new Error("Backup excede 50 MB.");
       const raw = JSON.parse(await file.text());
-      if (containsHistoricalDataset(raw)) throw new Error("Este backup contém uma base histórica que não faz parte do Pulso atual.");
+      if (containsHistoricalDataset(raw)) throw new Error("Este backup contém dados fora da operação atual.");
       const restored = validateWorkspace(raw);
-      if (!window.confirm("Restaurar este backup substituirá o histórico e os apontamentos deste navegador. Exporte o backup atual antes de continuar.")) return;
+      if (!window.confirm("Restaurar este backup substituirá a gestão salva neste navegador. Exporte o backup atual antes de continuar.")) return;
       await save(restored);
       setError("");
       setMonth("all");
       setAsset("all");
+      setView("summary");
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -95,12 +121,12 @@ export default function HysterDashboard() {
     try {
       if (file.size > 20 * 1024 * 1024) throw new Error("Limite de 20 MB por arquivo.");
       const raw = JSON.parse(await file.text()) as Record<string, unknown>;
-      if (containsHistoricalDataset(raw)) throw new Error("Esta base contém referência histórica fora da operação atual. Gere novamente o pacote apenas com o período operacional.");
+      if (containsHistoricalDataset(raw)) throw new Error("A base contém dados fora da operação atual.");
       const parsed = validateHyster(raw);
       await save(addDataset(workspace, parsed));
       setMonth("all");
       setAsset("all");
-      setTab("overview");
+      setView("summary");
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Arquivo inválido");
@@ -109,133 +135,82 @@ export default function HysterDashboard() {
 
   function registerAIAction(insight: OperationalAIInsight) {
     setSuggestion({ assetId: insight.assetId, title: `Investigar ${insight.title.toLowerCase()} · ${insight.date}` });
-    setTab("maintenance");
+    setView("orders");
+  }
+
+  function openInsight(insight: OperationalAIInsight) {
+    setFocusInsightId(insight.id);
+    setView("ai");
   }
 
   const latest = workspace.datasets.at(-1);
-  const openOrders = workspace.orders.filter((order) => order.status === "open" || order.status === "in_progress").length;
+  const today = new Date().toISOString().slice(0, 10);
+  const openOrders = workspace.orders.filter((order) => order.status === "open" || order.status === "in_progress");
+  const overdueOrders = openOrders.filter((order) => order.dueDate < today).length;
+  const highInsights = filteredAI.filter((item) => item.priority === "high").length;
 
   return <main className="pageShell hyster">
-    <header className="hero">
-      <div>
-        <div className="eyebrow">COPILOTO OPERACIONAL AI · PULSO</div>
-        <h1>Pulso <span>da operação</span></h1>
-        <p>Dados reais → padrão → evidência → explicação → decisão humana.</p>
+    <header className="pulsoHeader">
+      <div className="pulsoBrand">
+        <div className="pulsoMark"><Sparkles size={20} /></div>
+        <div><span>Copiloto Operacional AI</span><h1>Pulso</h1></div>
+      </div>
+      <div className="pulsoHeaderMeta">
+        {data ? <><span className="sourceBadge">Dados reais</span><span><CalendarRange size={15} /> {data.periodStart} → {data.periodEnd}</span><span><Truck size={15} /> {data.assets.length} equipamentos</span></> : <span className="sourceBadge muted">Aguardando base</span>}
+        <a className="demoLink" href="/">Ver demo sintética</a>
+        <button className="iconAction" onClick={() => setView("base")} aria-label="Gerenciar base"><Settings2 size={18} /></button>
       </div>
     </header>
 
-    <section className="trustBanner">
-      <div>
-        <strong>Uma base operacional, uma camada de inteligência.</strong>
-        <p>Importe um único JSON. O Pulso cruza utilização, eventos, indicadores por cartão e gestão operacional; o motor AI aprende o histórico do próprio equipamento, aplica z-score e Isolation Forest e prioriza o que merece investigação.</p>
-        <div className="hysterFilters">
-          <label className="hysterUpload">Importar base operacional JSON<input disabled={!ready || busy} aria-label="Selecionar base operacional JSON" type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label>
-          <button disabled={!ready || busy} onClick={backup}>Exportar backup da gestão</button>
-          <label className="hysterUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label>
-        </div>
-        <p role="status">{!ready ? "Recuperando histórico…" : busy ? "Salvando…" : saved}</p>
-        <small>Persistência local ao navegador nesta etapa. O motor não inventa métricas ausentes, diagnóstico, economia ou responsabilidade individual.</small>
-      </div>
-    </section>
+    {error && <div className="inlineAlert" role="alert"><AlertTriangle size={18} /><span>{error}</span></div>}
 
-    {error && <p role="alert">{error}</p>}
-
-    {!data && <article className="detailCard">
-      <h2>Importe a operação para gerar os insights</h2>
-      <p>Use o pacote Pulso-base-operacao.json. Após a validação do contrato, a mesma importação alimenta gestão, cartões, eventos, baseline estatístico, Isolation Forest, explicação e abertura de ação.</p>
-    </article>}
+    {!data && <section className="emptyState">
+      <div className="emptyIcon"><Database size={26} /></div><span className="sectionEyebrow">COMEÇAR</span><h2>Carregue a operação para ativar o Pulso</h2>
+      <p>Uma única importação alimenta frota, cartões, eventos, ordens e o motor de IA. O arquivo deve conter somente o período operacional atual.</p>
+      <label className="primaryUpload">Importar base operacional JSON<input disabled={!ready || busy} aria-label="Selecionar base operacional JSON" type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label>
+      <small>{!ready ? "Recuperando dados locais…" : busy ? "Salvando…" : "Persistência local ao navegador nesta etapa."}</small>
+    </section>}
 
     {data && report && ai && <>
-      <nav className="opsTabs" aria-label="Módulos de gestão">
-        {([
-          ["overview", "Operação"],
-          ["ai", "Desvios AI"],
-          ["cards", "Cartões e eventos"],
-          ["maintenance", "Ordens e manutenção"],
-          ["inputs", "Apontamentos"]
-        ] as [DashboardTab, string][]).map(([value, label]) => <button key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}</button>)}
-      </nav>
+      <nav className="productNav" aria-label="Navegação do Pulso">{navItems.map((item) => <button key={item.key} aria-current={view === item.key ? "page" : undefined} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>{item.icon}<span>{item.label}</span>{item.key === "ai" && highInsights > 0 && <em>{highInsights}</em>}</button>)}</nav>
 
-      {(tab === "overview" || tab === "ai") && <div className="hysterFilters">
-        <label>Mês<select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Todo o período</option>{report.months.map((item) => <option key={item.month}>{item.month}</option>)}</select></label>
-        <label>Equipamento<select value={asset} onChange={(event) => setAsset(event.target.value)}><option value="all">Toda a frota</option>{data.assets.map((item) => <option key={item.assetId}>{item.assetId}</option>)}</select></label>
-        <span>{data.periodStart} a {data.periodEnd} · {data.assets.length} equipamentos · dados reais importados</span>
-      </div>}
+      {(view === "summary" || view === "fleet" || view === "ai") && <section className="contextBar">
+        <div className="contextIntro"><span className="sectionEyebrow">CONTEXTO ATIVO</span><strong>{asset === "all" ? "Toda a frota" : asset}</strong><small>{month === "all" ? "Todo o período" : month}</small></div>
+        <div className="compactFilters"><label>Período<select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Todo o período</option>{report.months.map((item) => <option key={item.month}>{item.month}</option>)}</select></label><label>Equipamento<select value={asset} onChange={(event) => setAsset(event.target.value)}><option value="all">Toda a frota</option>{data.assets.map((item) => <option key={item.assetId}>{item.assetId}</option>)}</select></label></div>
+      </section>}
 
-      {tab === "cards" && <WorkforceCards data={data} workspace={workspace} />}
-      {(tab === "maintenance" || tab === "inputs") && <OperationsConsole key={tab} tab={tab} workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} />}
-      {tab === "ai" && <OperationalAIPanel data={data} assetFilter={asset} monthFilter={month} onRegisterAction={registerAIAction} />}
+      {view === "summary" && <>
+        <section className="pageIntro"><div><span className="sectionEyebrow">RESUMO EXECUTIVO</span><h2>Como está a operação</h2><p>Os dados são consolidados primeiro; a IA prioriza exceções depois. Nenhum insight representa diagnóstico ou decisão automática.</p></div><button className="secondaryAction" onClick={() => setView("ai")}><BrainCircuit size={17} /> Abrir investigação</button></section>
 
-      {tab === "overview" && <>
-        <section className="kpiGrid">
-          {[
-            ["Chave ligada", `${fmt(report.totals.key)} h`, "série diária"],
-            ["Trabalho registrado", `${fmt(report.totals.work)} h`, `${fmt(report.totals.workPct)}% da chave`],
-            ["Ociosidade / chave", `${fmt(report.totals.idlePct)}%`, `${fmt(report.totals.idle)} h registradas`],
-            ["Insights AI", String(filteredAI.length), `${filteredAI.filter((item) => item.priority === "high").length} de alta atenção`],
-            ["Ordens abertas", String(openOrders), "decisão e execução humanas"]
-          ].map(([label, value, context]) => <article className="kpiCard" key={label}><div><span>{label}</span><strong>{value}</strong><small>{context}</small></div></article>)}
+        <section className="managementKpis">
+          <article><span>Chave ligada</span><strong>{fmt(report.totals.key)} h</strong><small>{report.totals.records} registros equipamento-dia</small></article>
+          <article><span>Trabalho registrado</span><strong>{fmt(report.totals.work)} h</strong><small>{fmt(report.totals.workPct)}% da chave</small></article>
+          <article><span>Ociosidade / chave</span><strong>{fmt(report.totals.idlePct)}%</strong><small>{fmt(report.totals.idle)} h registradas</small></article>
+          <article className={highInsights ? "attentionKpi" : ""}><span>Desvios priorizados</span><strong>{filteredAI.length}</strong><small>{highInsights} de alta atenção</small></article>
+          <article><span>Ordens abertas</span><strong>{openOrders.length}</strong><small>{overdueOrders ? `${overdueOrders} vencida(s)` : "nenhuma vencida"}</small></article>
         </section>
 
-        <section className="detailCard">
-          <h2>Resumo da operação</h2>
-          <p>{report.totals.records} registros equipamento-dia · {report.types["Falha do sistema"] ?? 0} registros de falha · {report.types["Impacto"] ?? 0} impactos · {report.types["Status de caminhão"] ?? 0} registros de status.</p>
-          <p>O motor AI encontrou {filteredAI.length} contextos priorizados no filtro. A força da evidência combina desvio estatístico e raridade multivariada; não representa probabilidade de pane.</p>
-          <button className="opsAction" onClick={() => setTab("ai")}>Investigar prioridades com o Pulso AI</button>
+        <section className="priorityWorkspace">
+          <aside className="priorityListPane"><div className="sectionHeading"><div><span className="sectionEyebrow">PRIORIDADES</span><h3>O que merece atenção agora</h3></div><Gauge size={22} /></div><div className="priorityList">
+            {filteredAI.slice(0, 5).map((insight) => <button key={insight.id} className={summarySelected?.id === insight.id ? "selected" : ""} onClick={() => setFocusInsightId(insight.id)}><span className={`priorityPill ${insight.priority}`}>{insight.priority === "high" ? "Alta" : "Atenção"}</span><div><strong>{insight.assetId} · {insight.date}</strong><p>{insight.title}</p><small>Evidência {insight.evidenceStrength}/100 · IF {insight.multivariate.agreement}</small></div><ChevronRight size={17} /></button>)}
+            {!filteredAI.length && <div className="quietState">Nenhum contexto foi priorizado neste filtro. Isso não certifica a saúde da frota.</div>}
+          </div></aside>
+          <article className="priorityDetailPane">{summarySelected ? <><div className="detailTopline"><span className={`priorityPill ${summarySelected.priority}`}>{summarySelected.priority === "high" ? "Alta atenção" : "Atenção"}</span><span>{summarySelected.assetId} · {summarySelected.date}</span></div><h3>{summarySelected.title}</h3><p className="leadCopy">{summarySelected.summary}</p><div className="evidenceStrip"><div><span>Força da evidência</span><strong>{summarySelected.evidenceStrength}/100</strong></div><div><span>Isolation Forest</span><strong>{Math.round(summarySelected.multivariate.percentile * 100)}º pct.</strong></div><div><span>Eventos no contexto</span><strong>{summarySelected.relatedEvents.faults + summarySelected.relatedEvents.impacts}</strong></div></div><div className="recommendedNext"><span>Ação recomendada</span><p>{summarySelected.recommendation}</p></div><div className="detailActions"><button className="primaryAction" onClick={() => openInsight(summarySelected)}>Ver investigação completa</button><button className="secondaryAction" onClick={() => registerAIAction(summarySelected)}>Registrar ação</button></div><small className="guardrailCopy">{summarySelected.uncertainty}</small></> : <div className="quietState large">Selecione um contexto para ver evidências e próxima ação.</div>}</article>
         </section>
 
-        <section className="detailGrid">
-          <article className="detailCard">
-            <h2>Distribuição de uso</h2>
-            <div className="hysterTable"><table><thead><tr><th>Ativo</th><th>Chave (h)</th><th>Ocioso (h)</th><th>Ocioso/chave</th><th>Falhas</th><th>Impactos</th></tr></thead><tbody>
-              {report.assets.map((item) => <tr key={item.assetId}><th>{item.assetId}</th><td>{fmt(item.key)}</td><td>{fmt(item.idle)}</td><td>{fmt(item.idlePct)}%</td><td>{item.faults}</td><td>{item.impacts}</td></tr>)}
-            </tbody></table></div>
-            <p>Diferenças de uso pedem contexto de escala, demanda e função. Não indicam, sozinhas, causa ou excesso de frota.</p>
-          </article>
-
-          <article className="detailCard">
-            <h2>Evolução mensal</h2>
-            <p>Comparação dos meses para o equipamento selecionado.</p>
-            {report.months.map((item) => <div className="hysterMonth" key={item.month}><span>{item.month} · {fmt(item.key)} h de chave</span><meter aria-label={`Ociosidade ${item.month}`} min={0} max={100} value={item.idlePct ?? 0} /><strong>{fmt(item.idlePct)}% ocioso/chave</strong></div>)}
-            <p>Razões calculadas pelas somas de horas, não pela média simples dos percentuais.</p>
-          </article>
+        <section className="summaryGrid">
+          <article className="surfaceCard"><div className="sectionHeading"><div><span className="sectionEyebrow">FROTA</span><h3>Uso e exceções por equipamento</h3></div><button className="textAction" onClick={() => setView("fleet")}>Ver frota</button></div><div className="hysterTable compactTable"><table><thead><tr><th>Ativo</th><th>Chave</th><th>Ociosidade</th><th>Falhas</th><th>Impactos</th><th>Insights</th></tr></thead><tbody>{report.assets.map((item) => <tr key={item.assetId}><th>{item.assetId}</th><td>{fmt(item.key)} h</td><td>{fmt(item.idlePct)}%</td><td>{item.faults}</td><td>{item.impacts}</td><td>{filteredAI.filter((insight) => insight.assetId === item.assetId).length}</td></tr>)}</tbody></table></div></article>
+          <article className="surfaceCard"><div className="sectionHeading"><div><span className="sectionEyebrow">EVOLUÇÃO</span><h3>Ociosidade ao longo do período</h3></div><Gauge size={21} /></div><div className="trendList">{report.months.map((item) => <div key={item.month}><div><span>{item.month}</span><strong>{fmt(item.idlePct)}%</strong></div><div className="trendTrack"><span style={{ width: `${Math.min(100, Math.max(0, item.idlePct ?? 0))}%` }} /></div><small>{fmt(item.key)} h de chave</small></div>)}</div></article>
         </section>
-
-        <section className="detailCard">
-          <h2>Telemetria complementar do período</h2>
-          <p>Presença no filtro diário: {fmt(report.daily.reduce((sum, row) => sum + row.presenceHours, 0))} h. Movimento, hidráulica e elevação abaixo pertencem ao período completo da extração mais recente e não são distribuídos artificialmente pelo filtro mensal.</p>
-          <div className="hysterTable"><table><thead><tr><th>Equipamento</th><th>Período</th><th>Movimento (h)</th><th>Hidráulica (h)</th><th>Elevação (h)</th></tr></thead><tbody>
-            {latest?.kpi.filter((item) => asset === "all" || item.assetId === asset).map((item) => <tr key={item.assetId}><th>{item.assetId}</th><td>{latest.periodStart} a {latest.periodEnd}</td><td>{item.motionHours === undefined ? "Não disponível" : fmt(item.motionHours)}</td><td>{item.hydraulicHours === undefined ? "Não disponível" : fmt(item.hydraulicHours)}</td><td>{item.liftHours === undefined ? "Não disponível" : fmt(item.liftHours)}</td></tr>)}
-          </tbody></table></div>
-          <p>Distância, frente/ré, descida, alta velocidade, usos e demais totais por cartão permanecem na granularidade original cartão-período.</p>
-        </section>
-
-        <section className="detailCard">
-          <h2>Como a IA usa os dados reais</h2>
-          <p><strong>Baseline:</strong> mesmo equipamento, até 28 dias anteriores, mínimo de 10 dias com pelo menos 1 h de chave.</p>
-          <p><strong>z-score:</strong> procura desvios explicáveis em trabalho/chave, ociosidade/chave, espera/chave e recorrência de eventos.</p>
-          <p><strong>Isolation Forest:</strong> usa o mesmo núcleo do motor da demo para verificar se a combinação de chave, trabalho, ociosidade, espera, falhas e impactos também é rara no histórico do ativo.</p>
-          <p><strong>Cartões:</strong> entram como contexto de evidência; indicadores agregados por cartão não geram ranking nem score individual.</p>
-        </section>
-
-        <section className="detailCard">
-          <h2>Qualidade e limites da base</h2>
-          <ul>
-            <li>{report.quality.waitAboveIdle} registros com espera maior que ociosidade; os contadores não devem ser tratados como partição perfeita do tempo.</li>
-            <li>{report.quality.nonAdditive} registros com trabalho + ociosidade acima da chave por mais de 0,03 h.</li>
-            <li>Dias ausentes permanecem desconhecidos. O motor não preenche lacunas com zero.</li>
-            <li>Combustível: {data.fuel.every((item) => item.reportedLiters === 0) ? "relatório zerado; não entra como evidência de consumo" : "registros disponíveis; validar cobertura"}.</li>
-            <li>Custos: {data.costs.some((item) => item.reportedTotal === null) ? "totais ausentes; não há cálculo de economia" : "registros disponíveis; validar cobertura e moeda"}.</li>
-            <li>Manutenção: {data.maintenanceAvailable ? "fonte disponível; validar detalhes antes de concluir condição" : "sem registros de manutenção na base atual"}.</li>
-            <li>Indicadores por cartão: {data.workforce ? `${data.workforce.periodStart} a ${data.workforce.periodEnd}; agregados no período e sem nomes` : "não disponíveis nesta base"}.</li>
-          </ul>
-          <details><summary>Rastreabilidade das fontes</summary>{data.sources.map((source) => <p key={source.sha256}><strong>{source.file}</strong><br /><small>SHA-256: {source.sha256}</small></p>)}</details>
-        </section>
-
-        <details className="detailCard"><summary>Histórico de importações · {workspace.datasets.length} extrações</summary>{workspace.datasets.map((dataset, index) => <p key={`${dataset.operationId ?? index}-${dataset.periodStart}`}>{dataset.periodStart} a {dataset.periodEnd} · {dataset.daily.length} registros diários · {dataset.events.length} eventos · schema {dataset.schemaVersion}{dataset.workforce ? " · indicadores por cartão" : ""}</p>)}</details>
       </>}
 
-      <footer className="dataFooter"><p>Pulso · a máquina gera os dados, a IA encontra o padrão, o ser humano decide. Sem nomes, ranking individual, diagnóstico automático ou referência de 2023.</p></footer>
+      {view === "fleet" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">FROTA</span><h2>Compare ativos, depois investigue o contexto</h2><p>A ordenação ajuda a encontrar exceções operacionais; não representa ranking humano nem diagnóstico.</p></div></div><article className="surfaceCard"><div className="hysterTable fleetTable"><table><thead><tr><th>Equipamento</th><th>Chave (h)</th><th>Trabalho (h)</th><th>Ocioso (h)</th><th>Ocioso/chave</th><th>Falhas</th><th>Impactos</th><th>Insights</th><th></th></tr></thead><tbody>{report.assets.map((item) => { const count = ai.insights.filter((insight) => insight.assetId === item.assetId && (month === "all" || insight.date.startsWith(month))).length; return <tr key={item.assetId}><th>{item.assetId}</th><td>{fmt(item.key)}</td><td>{fmt(item.work)}</td><td>{fmt(item.idle)}</td><td>{fmt(item.idlePct)}%</td><td>{item.faults}</td><td>{item.impacts}</td><td>{count}</td><td><button className="rowAction" onClick={() => { setAsset(item.assetId); setView("ai"); }}>Investigar</button></td></tr>; })}</tbody></table></div></article><section className="summaryGrid"><article className="surfaceCard"><span className="sectionEyebrow">TELEMETRIA DO PERÍODO</span><h3>Indicadores complementares</h3><p>Movimento, hidráulica e elevação permanecem no período completo da extração; não são rateados artificialmente pelo filtro mensal.</p><div className="hysterTable compactTable"><table><thead><tr><th>Ativo</th><th>Movimento</th><th>Hidráulica</th><th>Elevação</th></tr></thead><tbody>{latest?.kpi.filter((item) => asset === "all" || item.assetId === asset).map((item) => <tr key={item.assetId}><th>{item.assetId}</th><td>{item.motionHours === undefined ? "n/d" : `${fmt(item.motionHours)} h`}</td><td>{item.hydraulicHours === undefined ? "n/d" : `${fmt(item.hydraulicHours)} h`}</td><td>{item.liftHours === undefined ? "n/d" : `${fmt(item.liftHours)} h`}</td></tr>)}</tbody></table></div></article><article className="surfaceCard"><span className="sectionEyebrow">LEITURA</span><h3>Como interpretar</h3><p>Diferenças de uso precisam de contexto de demanda, escala, rota e função. Dias ausentes permanecem desconhecidos e não viram zero.</p><div className="callout"><BrainCircuit size={19} /><span>O motor de IA aprende o histórico do próprio equipamento e prioriza contextos que merecem investigação.</span></div></article></section></section>}
+
+      {view === "ai" && <OperationalAIPanel data={data} assetFilter={asset} monthFilter={month} initialInsightId={focusInsightId} onRegisterAction={registerAIAction} />}
+      {view === "cards" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">CARTÕES</span><h2>Contexto de uso sem ranking individual</h2><p>Associação de cartão com equipamento ou evento não comprova responsabilidade individual.</p></div></div><WorkforceCards data={data} workspace={workspace} /></section>}
+      {view === "orders" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">EXECUÇÃO</span><h2>Ordens e acompanhamento</h2><p>Transforme evidência em investigação, registre a decisão humana e acompanhe o que ocorreu depois.</p></div></div><OperationsConsole tab="maintenance" workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} /></section>}
+
+      {view === "base" && <section className="contentSection basePage"><div className="pageIntro"><div><span className="sectionEyebrow">BASE</span><h2>Dados, qualidade e persistência</h2><p>Funções administrativas ficam fora da visão executiva para não competir com a operação.</p></div></div><section className="baseGrid"><article className="surfaceCard baseActions"><h3>Base operacional</h3><p><strong>{data.periodStart} → {data.periodEnd}</strong><br />{data.assets.length} equipamentos · {data.sources.length} fontes registradas</p><label className="primaryUpload">Importar nova base JSON<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label><button className="secondaryAction" disabled={!ready || busy} onClick={backup}>Exportar backup</button><label className="secondaryUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label><small role="status">{!ready ? "Recuperando…" : busy ? "Salvando…" : saved}</small></article><article className="surfaceCard"><h3>Qualidade observada</h3><ul className="qualityList"><li><strong>{report.quality.waitAboveIdle}</strong><span>registros com espera maior que ociosidade</span></li><li><strong>{report.quality.nonAdditive}</strong><span>registros com contadores não aditivos</span></li><li><strong>{data.fuel.every((item) => item.reportedLiters === 0) ? "n/d" : "ok"}</strong><span>combustível validado</span></li><li><strong>{data.maintenanceAvailable ? "sim" : "não"}</strong><span>manutenção detalhada na origem</span></li></ul><p className="mutedCopy">O Pulso não preenche dias ausentes, não inventa economia e não transforma ausência em zero.</p></article></section><article className="surfaceCard"><h3>Fontes da operação</h3><div className="sourceList">{data.sources.map((source) => <details key={source.sha256}><summary>{source.file}</summary><code>{source.sha256}</code><p>{source.sheets.map((sheet) => `${sheet.name} · ${sheet.rows} linhas`).join(" · ")}</p></details>)}</div></article><article className="surfaceCard"><h3>Dados complementares e apontamentos</h3><p>Planejamento, parada, combustível, custo e produção inseridos pela gestão continuam locais neste navegador.</p><OperationsConsole tab="inputs" workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} /></article><article className="surfaceCard roadmapCard"><h3>Persistência compartilhada · próximo estágio</h3><p>Backend autenticado, banco central, autorização por perfil, auditoria, sincronização multiusuário e backup central permanecem documentados como roadmap. Esta etapa continua local ao navegador.</p></article></section>}
     </>}
   </main>;
 }
