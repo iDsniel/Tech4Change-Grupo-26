@@ -1,4 +1,4 @@
-import { operationalExplanationPacket, type OperationalAIInsight, type OperationalEvidence } from "@/lib/operationalAI";
+import { operationalExplanationPacket, type OperationalAIInsight, type OperationalEvidence } from "./operationalAI.ts";
 
 export type OperationalExplanationPacket = ReturnType<typeof operationalExplanationPacket>;
 
