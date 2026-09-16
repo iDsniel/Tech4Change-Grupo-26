@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight, Maximize2, Play, Presentation, X } from "lucide-react";
 
 type DemoStep = {
@@ -57,6 +58,7 @@ function openActionForm() {
 }
 
 export function DemoMode() {
+  const pathname = usePathname();
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
 
@@ -178,8 +180,10 @@ export function DemoMode() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("demo") === "1") start();
-  }, [start]);
+    if (pathname === "/" && params.get("demo") === "1") start();
+  }, [start, pathname]);
+
+  if (pathname === "/hyster") return null;
 
   if (!active) {
     return (

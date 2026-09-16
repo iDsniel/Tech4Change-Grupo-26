@@ -6,7 +6,7 @@ import "./demo-mode.css";
 import "./polish.css";
 
 export const metadata: Metadata = {
-  title: "Copiloto Operacional AI | Tech4Change",
+  title: "Pulso | Copiloto Operacional AI",
   description: "IA que transforma telemetria industrial em orientação para operadores e gestores"
 };
 

@@ -1,3 +1,9 @@
+# Pulso — dados reais Hyster
+
+A visão operacional real está em **[/hyster](http://localhost:3000/hyster)**. Importe a base JSON preparada a partir dos oito relatórios Hyster. Filtros por mês/equipamento, contadores ponderados, eventos tipados e sinais históricos explicáveis funcionam localmente no navegador. A tela inicial mantém a demonstração sintética e tem um link para essa visão.
+
+Veja [importação, métricas e limitações](docs/hyster-real-data.md). Dados reais não são publicados neste repositório. A análise real não usa estimativas sintéticas de combustível, manutenção ou economia.
+
 # Copiloto Operacional AI — Tech4Change Grupo 26
 
 MVP de uma camada de inteligência sobre telemetria industrial. A solução recebe dados de fontes diferentes, normaliza tudo em um contrato interno comum, aprende o comportamento histórico dos ativos, identifica desvios estatísticos, usa Isolation Forest como segunda opinião e transforma sinais técnicos em explicações e recomendações para operadores e gestores.

@@ -1,0 +1,21 @@
+.hyster a { color: var(--accent, #7fe7d8); }
+.hyster h2 { margin-bottom: 14px; }
+.hyster h3 { margin: 16px 0 10px; }
+.hyster p { line-height: 1.65; margin: 10px 0; }
+.hyster .detailCard, .hyster .detailGrid { margin: 20px 0; }
+.hysterFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; margin: 24px 0; }
+.hysterFilters label { display: grid; gap: 8px; }
+.hyster select, .hysterUpload { padding: 10px; background: #151b23; color: #f4f7fa; border: 1px solid #53616d; border-radius: 6px; }
+.hysterUpload { display: inline-flex; gap: 16px; flex-wrap: wrap; }
+.hyster input { max-width: 100%; }
+.hysterTable { overflow-x: auto; }
+.hyster table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.hyster th, .hyster td { text-align: left; padding: 12px 8px; border-bottom: 1px solid #35414d; white-space: nowrap; }
+.hysterMonth { display: grid; gap: 10px; padding: 14px 0; }
+.hyster meter { width: 100%; height: 16px; accent-color: #7fe7d8; }
+.hyster small { overflow-wrap: anywhere; line-height: 1.6; }
+.hyster li { margin: 12px 0; line-height: 1.6; }
+.hyster details { margin-top: 16px; }
+.hyster summary { cursor: pointer; padding: 8px 0; }
+.hyster hr { border: 0; border-top: 1px solid #35414d; margin: 24px 0; }
+.hyster .insightList { max-height: 560px; overflow-y: auto; }
