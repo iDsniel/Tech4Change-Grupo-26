@@ -1,12 +1,13 @@
-"""Read Hyster XLSX exports; emit whitelisted metrics and card codes, without names.
+"""Read current Hyster XLSX exports; emit one operational JSON package.
 
 Usage:
-  python scripts/import_hyster.py /path/to/exports --output .data/hyster.json
-  python scripts/import_hyster.py /path/to/exports --workforce /path/to/workforceKPITier7.xlsx --output .data/hyster.json
+  python scripts/import_hyster.py /path/to/exports --output .data/Pulso-base-operacao.json
+  python scripts/import_hyster.py /path/to/exports --workforce /path/to/workforceKPITier7.xlsx --output .data/Pulso-base-operacao.json
 
-Requires openpyxl (read-only); original workbooks are never modified. Workforce
-rows are stored only at their source period granularity; quarterly totals are never
-spread across months or days.
+Requires openpyxl (read-only); original workbooks are never modified. Indicators
+by card are stored only at their source-period granularity; aggregated totals are
+never spread across months or days. Historical discovery dashboards are not part
+of the operational package.
 """
 import argparse
 import hashlib
@@ -170,7 +171,7 @@ def convert_workforce(path, product_ids, expected_start, expected_end):
             warnings.append("Há linhas de cartão sem código completo; elas permanecem sem identificação no contrato.")
         if any(card["cardQuality"] == "ambiguous" for card in cards):
             warnings.append("Há códigos de cartão repetidos; as linhas foram sinalizadas como ambíguas e não devem ser agregadas automaticamente.")
-        warnings.append("Os contadores Workforce são totais do período da fonte; não foram distribuídos artificialmente por mês ou dia.")
+        warnings.append("Os contadores por cartão são totais do período da fonte; não foram distribuídos artificialmente por mês ou dia.")
         warnings.append("Linhas filhas por equipamento ficam aninhadas no cartão e não são somadas ao total do cartão como novos registros.")
         return ({"periodStart": start, "periodEnd": end, "granularity": "card-period", "unitSystem": "metric",
                  "sourceFile": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -254,15 +255,12 @@ def convert(folder, workforce=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path)
-    parser.add_argument("--output", type=Path, default=Path(".data/hyster.json"))
-    parser.add_argument("--legacy", type=Path, help="Optional historical workforce dashboard")
-    parser.add_argument("--workforce", type=Path, help="Optional current Workforce KPI export; stored only at source period granularity")
+    parser.add_argument("--output", type=Path, default=Path(".data/Pulso-base-operacao.json"))
+    parser.add_argument("--workforce", type=Path, help="Current indicators-by-card export; stored only at source-period granularity")
     args = parser.parse_args()
     data = convert(args.folder, args.workforce)
-    if args.legacy:
-        from import_legacy import convert_legacy
-        data["legacy"] = convert_legacy(args.legacy)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(json.dumps({"output": str(args.output), "days": len(data["daily"]), "events": len(data["events"]),
-                      "workforceCards": len(data.get("workforce", {}).get("cards", []))}))
+    print(json.dumps({"output": str(args.output), "periodStart": data["periodStart"], "periodEnd": data["periodEnd"],
+                      "days": len(data["daily"]), "events": len(data["events"]),
+                      "cards": len(data.get("workforce", {}).get("cards", []))}))
