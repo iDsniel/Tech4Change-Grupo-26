@@ -1,6 +1,6 @@
-import type { OperationalAIInsight, OperationalEvidence } from "@/lib/operationalAI";
+import { operationalExplanationPacket, type OperationalAIInsight, type OperationalEvidence } from "@/lib/operationalAI";
 
-export type OperationalExplanationPacket = ReturnType<typeof import("@/lib/operationalAI").operationalExplanationPacket>;
+export type OperationalExplanationPacket = ReturnType<typeof operationalExplanationPacket>;
 
 export type OperationalExplanation = {
   headline: string;
