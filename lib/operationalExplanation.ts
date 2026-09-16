@@ -1,6 +1,7 @@
 import { operationalExplanationPacket, type OperationalAIInsight, type OperationalEvidence } from "./operationalAI.ts";
+import { validateOperationalContext, type OperationalContext } from "./operationalContext.ts";
 
-export type OperationalExplanationPacket = ReturnType<typeof operationalExplanationPacket>;
+export type OperationalExplanationPacket = ReturnType<typeof operationalExplanationPacket> & { context?: OperationalContext };
 
 export type OperationalExplanation = {
   headline: string;
@@ -42,6 +43,10 @@ export function validateOperationalExplanationPacket(value: unknown): Operationa
   if (!multi || multi.method !== "isolation-forest" || !ALLOWED_AGREEMENTS.has(String(multi.agreement)) || !finite(multi.anomalyScore) || !finite(multi.percentile) || Number(multi.percentile) < 0 || Number(multi.percentile) > 1 || !Number.isInteger(multi.trees) || !Number.isInteger(multi.sampleSize) || !Array.isArray(multi.features) || !multi.features.every((item) => ALLOWED_METRICS.has(String(item))) || !shortString(multi.explanation, 800)) throw new Error("Evidência multivariada inválida.");
   const events = packet.relatedEvents as Record<string, unknown> | undefined;
   if (!events || !Number.isInteger(events.faults) || Number(events.faults) < 0 || !Number.isInteger(events.impacts) || Number(events.impacts) < 0) throw new Error("Contexto de eventos inválido.");
+  if (packet.context !== undefined) {
+    const context = validateOperationalContext(packet.context);
+    if (context.assetId !== packet.assetId || context.date !== packet.date) throw new Error("Contexto operacional não corresponde à evidência.");
+  }
   return value as OperationalExplanationPacket;
 }
 
@@ -60,21 +65,43 @@ function plainFacts(insight: OperationalAIInsight | OperationalExplanationPacket
   return facts;
 }
 
+function contextSentence(packet: OperationalAIInsight | OperationalExplanationPacket) {
+  if (!("context" in packet) || !packet.context) return "";
+  const context = packet.context;
+  const pieces: string[] = [];
+  const aggregate = context.aggregateTelemetry;
+  if (aggregate?.ratios.hydraulicPct != null) pieces.push(`hidráulica ${aggregate.ratios.hydraulicPct}% da chave`);
+  if (aggregate?.ratios.motionPct != null) pieces.push(`movimento ${aggregate.ratios.motionPct}% da chave`);
+  if (aggregate?.ratios.marchPct != null) pieces.push(`marcha ${aggregate.ratios.marchPct}% da chave`);
+  const input = context.management.sameDayInput;
+  if (input?.production != null) pieces.push(`produção apontada no dia ${input.production} ${input.productionUnit}`);
+  if (!pieces.length) return "";
+  const aggregateLabel = aggregate ? ` No agregado disponível de ${aggregate.periodStart} a ${aggregate.periodEnd}, ${pieces.filter((item) => !item.startsWith("produção")).join(", ")}.` : "";
+  const dailyLabel = input?.production != null ? ` No mesmo dia, houve apontamento de produção de ${input.production} ${input.productionUnit}.` : "";
+  return `${aggregateLabel}${dailyLabel}`;
+}
+
 export function deterministicOperationalExplanation(insight: OperationalAIInsight | OperationalExplanationPacket): OperationalExplanation {
   const facts = plainFacts(insight);
+  const context = "context" in insight ? insight.context : undefined;
   const explanation = facts.length
-    ? `Neste contexto, ${facts.join("; ")}. O Pulso destacou a situação porque ela se afastou do comportamento habitual do próprio equipamento.`
-    : "O Pulso encontrou uma combinação de sinais diferente do comportamento habitual deste equipamento e separou o contexto para revisão.";
+    ? `Neste contexto, ${facts.join("; ")}. O Pulso destacou a situação porque ela se afastou do comportamento habitual do próprio equipamento.${contextSentence(insight)}`
+    : `O Pulso encontrou uma combinação de sinais diferente do comportamento habitual deste equipamento e separou o contexto para revisão.${contextSentence(insight)}`;
 
   let whyItMatters = "Essa diferença pode ajudar a encontrar mais rápido onde vale investigar antes de decidir uma ação.";
   if (insight.category === "safety") whyItMatters = "Impactos precisam ser contextualizados com rota, piso, carga e condição do equipamento antes de qualquer conclusão.";
   if (insight.category === "reliability") whyItMatters = "Falhas concentradas podem afetar disponibilidade e merecem confronto com inspeção e histórico de manutenção.";
+  if (context && !context.availability.demandOrProduction && insight.category === "efficiency") whyItMatters = "Sem dado de demanda ou produção do dia, o Pulso não consegue separar automaticamente baixa atividade de baixa demanda; a leitura serve para direcionar a verificação humana.";
+
+  const scopeWarning = context?.aggregateTelemetry
+    ? " Indicadores de hidráulica, movimento e marcha são contexto agregado do período, não evidência diária."
+    : "";
 
   return {
     headline: insight.category === "safety" ? "Impacto merece revisão" : insight.category === "reliability" ? "Falhas pedem verificação" : "Comportamento diferente do habitual",
     explanation,
     whyItMatters,
-    uncertainty: "Esta leitura é um indício para investigação e não comprova causa, falha futura ou responsabilidade individual."
+    uncertainty: `Esta leitura é um indício para investigação e não comprova causa, falha futura ou responsabilidade individual.${scopeWarning}`
   };
 }
 
