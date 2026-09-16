@@ -7,3 +7,7 @@ node_modules
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.xlsx
+Pulso-base-*.json
+*.tsbuildinfo
+__pycache__/
