@@ -31,7 +31,7 @@ export default function HysterDashboard() {
   async function restore(file?: File) {
     if (!file) return;
     try { if (file.size > 50 * 1024 * 1024) throw new Error("Backup excede 50 MB."); const w = validateWorkspace(JSON.parse(await file.text())); if (!window.confirm("Restaurar este backup substituirá o histórico e os apontamentos deste navegador. Exporte o backup atual antes de continuar.")) return; await save(w); setError(""); setMonth("all"); setAsset("all"); setSelected(0); }
-    catch (e) { setError((e as Error).message); }
+    catch (e) { setError(e.message); }
   }
   const report = useMemo(() => data ? analyzeHyster(data, month, asset) : null, [data, month, asset]);
   const deviation = report?.deviations[selected];
@@ -39,17 +39,19 @@ export default function HysterDashboard() {
     if (!file) return;
     try {
       if (file.size > 20 * 1024 * 1024) throw new Error("Limite de 20 MB por arquivo.");
-      const parsed = validateHyster(JSON.parse(await file.text()));
+      const raw = JSON.parse(await file.text()) as Record<string, unknown>;
+      if ("legacy" in raw || "historical2023" in raw) throw new Error("Esta base contém referência histórica fora da operação atual. Gere novamente o pacote apenas com o período operacional.");
+      const parsed = validateHyster(raw);
       await save(addDataset(workspace, parsed)); setMonth("all"); setAsset("all"); setSelected(0); setError("");
     } catch (e) { setError(e instanceof Error ? e.message : "Arquivo inválido"); }
   }
   return <main className="pageShell hyster">
     <header className="hero"><div><div className="eyebrow">COPILOTO OPERACIONAL AI · PULSO</div><h1>Pulso <span>da operação</span></h1><p>Histórico real. Evidências para investigar. Decisão humana.</p></div><a href="/">Demonstração sintética →</a></header>
-    <section className="trustBanner"><div><strong>Gestão da operação · histórico e acompanhamento</strong><p>Importe um único pacote operacional para carregar telemetria, eventos, indicadores por cartão e referências do período. Os dados e apontamentos ficam salvos neste navegador; novas extrações atualizam períodos repetidos sem duplicar o histórico.</p><div className="hysterFilters"><label className="hysterUpload">Importar base operacional JSON<input disabled={!ready || busy} aria-label="Selecionar base operacional JSON" type="file" accept=".json,application/json" onChange={e => void importFile(e.target.files?.[0])} /></label><button disabled={!ready || busy} onClick={backup}>Exportar backup da gestão</button><label className="hysterUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={e => void restore(e.target.files?.[0])} /></label></div><p role="status">{!ready ? "Recuperando histórico…" : busy ? "Salvando…" : saved}</p><small>Dados locais a este navegador e endereço. Exporte backup para outro computador; esta versão ainda não sincroniza vários usuários.</small></div></section>
+    <section className="trustBanner"><div><strong>Gestão da operação · histórico e acompanhamento</strong><p>Importe um único pacote operacional para carregar telemetria, eventos, indicadores por cartão e demais fontes do período. Os dados e apontamentos ficam salvos neste navegador; novas extrações atualizam períodos repetidos sem duplicar o histórico.</p><div className="hysterFilters"><label className="hysterUpload">Importar base operacional JSON<input disabled={!ready || busy} aria-label="Selecionar base operacional JSON" type="file" accept=".json,application/json" onChange={e => void importFile(e.target.files?.[0])} /></label><button disabled={!ready || busy} onClick={backup}>Exportar backup da gestão</button><label className="hysterUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={e => void restore(e.target.files?.[0])} /></label></div><p role="status">{!ready ? "Recuperando histórico…" : busy ? "Salvando…" : saved}</p><small>Dados locais a este navegador e endereço. Exporte backup para outro computador; esta versão ainda não sincroniza vários usuários.</small></div></section>
     {error && <p role="alert">{error}</p>}
     {!data && <article className="detailCard"><h2>Uma importação, uma visão da operação</h2><p>Importe o arquivo unificado Pulso-base-operacao.json. Para novas extrações, gere novamente o mesmo pacote a partir dos relatórios do período.</p><p>A base operacional reúne utilização diária, indicadores agregados por cartão, eventos, cadastro, KPI consolidado, custos, combustível, manutenção e qualidade das fontes disponíveis. O Pulso usa essas evidências em conjunto, respeitando a granularidade original de cada medida.</p></article>}
     {data && report && <>
-      <nav className="opsTabs" aria-label="Módulos de gestão">{([["overview", "Operação"], ["cards", "Cartões e eventos"], ["maintenance", "Ordens e manutenção"], ["inputs", "Apontamentos"], ["legacy", "Dashboard 2023"]] as [OperationsTab, string][]).map(([value, label]) => <button key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}</button>)}</nav>
+      <nav className="opsTabs" aria-label="Módulos de gestão">{([["overview", "Operação"], ["cards", "Cartões e eventos"], ["maintenance", "Ordens e manutenção"], ["inputs", "Apontamentos"]] as [OperationsTab, string][]).map(([value, label]) => <button key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}</button>)}</nav>
       {tab === "cards" ? <WorkforceCards data={data} workspace={workspace} /> : <OperationsConsole key={tab} tab={tab} workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} />}
       {tab === "overview" && <>
       <div className="hysterFilters"><label>Mês<select value={month} onChange={e => { setMonth(e.target.value); setSelected(0); }}><option value="all">Todo o período</option>{report.months.map(m => <option key={m.month}>{m.month}</option>)}</select></label><label>Equipamento<select value={asset} onChange={e => { setAsset(e.target.value); setSelected(0); }}><option value="all">Toda a frota</option>{data.assets.map(a => <option key={a.assetId}>{a.assetId}</option>)}</select></label><span>{data.periodStart} a {data.periodEnd} · histórico diário · sem conexão em tempo real</span></div>
@@ -64,7 +66,7 @@ export default function HysterDashboard() {
 
       <details className="detailCard"><summary>Histórico de importações · {workspace.datasets.length} extrações</summary>{workspace.datasets.map((d, i) => <p key={i}>{d.periodStart} a {d.periodEnd} · {d.daily.length} registros diários · {d.events.length} eventos · versão {d.schemaVersion}{d.workforce ? " · indicadores por cartão" : ""}</p>)}<p>Os contadores agregados não são somados entre extrações sobrepostas. Concilie cada período com a respectiva extração.</p></details>
       </>}
-      <footer className="dataFooter"><p>Pulso · operação, manutenção e acompanhamento evolutivo. Identificação por código do cartão, sem nomes e sem ranking individual. Histórico de 2023 separado da operação atual.</p></footer>
+      <footer className="dataFooter"><p>Pulso · operação, manutenção e acompanhamento evolutivo. Identificação por código do cartão, sem nomes e sem ranking individual.</p></footer>
     </>}
   </main>;
 }
