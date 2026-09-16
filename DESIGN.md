@@ -1,54 +1,46 @@
 # Pulso — DESIGN.md
 
-Este arquivo é o contrato visual e de UX do **Pulso — Copiloto Operacional AI**. Toda evolução da interface deve seguir estas regras antes de adicionar novos estilos ou componentes.
+Este arquivo é o contrato visual e de UX do **Pulso — Copiloto Operacional AI**.
 
-O objetivo é transformar o Pulso de um painel técnico escuro e denso em um **produto de gestão operacional claro, confiável, acionável e fácil de ler**, sem perder rastreabilidade, profundidade analítica ou os guardrails já implementados.
-
-## 1. Princípio central
+O Pulso deve ser um produto de gestão operacional claro, confiável e acionável. A interface não existe para exibir o máximo possível de métricas; ela existe para ajudar o usuário a entender a operação, priorizar investigação, agir e acompanhar o resultado.
 
 > **A máquina gera os dados. A IA encontra o padrão. O ser humano decide.**
 
-A interface deve refletir essa ordem.
+## Escopo de dados do produto
 
-O usuário não abre o Pulso para admirar gráficos. Ele abre para responder rapidamente:
+A experiência real usa somente a operação carregada no JSON operacional atual.
 
-1. Como a operação está?
-2. O que mudou?
-3. O que exige atenção agora?
-4. Qual equipamento, cartão ou processo está relacionado?
-5. Que evidências sustentam o alerta?
-6. Qual ação deve ser validada?
-7. O que aconteceu depois da ação?
+Para a amostra do Tech4Change, o período é **01/06/2026 a 31/08/2026**.
 
-A UI deve priorizar resposta e decisão, não navegação por estruturas internas do sistema.
+O dashboard antigo usado durante a descoberta do produto não integra o Pulso. Não deve existir navegação, card, seção, persistência ou importação de dados históricos externos ao período operacional carregado.
 
----
+A demo sintética permanece separada da operação real.
 
-# 2. Referências de design
+## Referências de design
 
-## Carbon Design System
+### Carbon Design System
 
 Usar como referência para:
 
-- estrutura de produto corporativo;
 - hierarquia de informação;
+- estrutura de produto corporativo;
 - tabelas e filtros;
-- estados e feedback;
 - acessibilidade;
-- semântica de cor;
-- componentes reutilizáveis;
-- dashboards e visualização de dados;
-- progressão de visão resumida para detalhe.
+- estados e feedback;
+- visualização de dados;
+- progressão de resumo para detalhe.
 
-Não é obrigatório instalar Carbon React. O importante é preservar os princípios de produto e consistência antes de adicionar dependências.
+Não é obrigatório instalar Carbon React.
 
-## awesome-design-md
+### awesome-design-md
 
-Usar o conceito de `DESIGN.md` como contrato explícito para agentes e desenvolvedores. A interface deve seguir regras, tokens e padrões definidos aqui, em vez de receber estilização ad hoc a cada feature.
+Usar este `DESIGN.md` como contrato explícito de UI/UX. Não estilizar telas ad hoc a cada feature.
 
-Podem ser usados como inspiração sistemas com estética enterprise limpa, como Linear, Notion, Stripe, Intercom e IBM, sem copiar fontes, ilustrações, marcas ou assets proprietários.
+Podem inspirar a direção visual produtos enterprise limpos como Linear, Notion, Stripe, Intercom e IBM, sem copiar identidade, fontes ou assets proprietários.
 
-## Direção visual própria do Pulso
+## Direção visual
+
+**Light-first.**
 
 O Pulso deve parecer:
 
@@ -58,63 +50,28 @@ O Pulso deve parecer:
 - moderno sem excesso de efeitos;
 - confiável antes de parecer futurista.
 
----
-
-# 3. Direção visual obrigatória
-
-## Tema padrão
-
-**Light-first.**
-
-O tema claro é o padrão do Pulso nesta fase.
-
-Não usar canvas preto como experiência principal.
-
-### Canvas
+### Tokens principais
 
 - App background: `#F7F8FA`
 - Surface primary: `#FFFFFF`
 - Surface secondary: `#F3F5F7`
-- Surface elevated: `#FFFFFF`
 - Border subtle: `#E5E7EB`
 - Border strong: `#D1D5DB`
-
-### Texto
-
-- Primary: `#111827`
-- Secondary: `#4B5563`
-- Muted: `#6B7280`
-- Disabled: `#9CA3AF`
-
-### Identidade do produto
-
+- Text primary: `#111827`
+- Text secondary: `#4B5563`
+- Text muted: `#6B7280`
 - Pulso teal: `#0F766E`
 - Pulso teal hover: `#115E59`
 - Pulso teal soft: `#CCFBF1`
-- Pulso cyan detail: `#0891B2`
-
-### Semântica operacional
-
-- Success / normal: `#15803D`
-- Success soft: `#DCFCE7`
-- Attention: `#B45309`
-- Attention soft: `#FEF3C7`
-- High: `#C2410C`
-- High soft: `#FFEDD5`
-- Critical: `#B91C1C`
-- Critical soft: `#FEE2E2`
 - Informational: `#1D4ED8`
-- Informational soft: `#DBEAFE`
+- Success: `#15803D`
+- Attention: `#B45309`
+- High: `#C2410C`
+- Critical: `#B91C1C`
 
-Cor semântica não deve ser usada como decoração. Deve indicar estado, prioridade, tendência ou exceção.
+Cor semântica indica estado, prioridade ou exceção. Não usar cores fortes apenas como decoração.
 
----
-
-# 4. Tipografia
-
-Usar a stack de sistema já disponível no projeto ou uma sans-serif neutra equivalente.
-
-## Escala
+## Tipografia
 
 - Page title: 30–36px / 700
 - Section title: 22–24px / 650–700
@@ -122,57 +79,30 @@ Usar a stack de sistema já disponível no projeto ou uma sans-serif neutra equi
 - KPI value: 28–36px / 650–700
 - Body: 14–16px / 400
 - Supporting text: 12–14px / 400
-- Eyebrow / metadata: 11–12px / 600, uppercase apenas quando necessário
 
-Não usar tipografia monoespaçada como linguagem principal do produto.
+Preferir sans-serif neutra e numerais tabulares para KPIs/tabelas.
 
-Usar numerais tabulares quando disponível para KPIs e tabelas.
+## Espaçamento e forma
 
----
+Base de 4px.
 
-# 5. Espaçamento e forma
+- 8px para conteúdo relacionado;
+- 16px para padding interno mínimo;
+- 24px entre blocos;
+- 32px entre seções;
+- 48px entre mudanças grandes de contexto.
 
-## Grid
+Raios:
 
-Basear espaçamento em múltiplos de 4px.
+- controles: 6–8px;
+- cards: 10–12px;
+- painéis: 12px.
 
-Preferências:
+Evitar sombras grandes e glassmorphism generalizado.
 
-- 4px: micro espaço
-- 8px: conteúdo relacionado
-- 12px: controles compactos
-- 16px: padding interno mínimo
-- 24px: separação entre blocos
-- 32px: separação entre seções
-- 48px: grandes mudanças de contexto
+## Arquitetura principal
 
-## Raio
-
-- Inputs/buttons: 6–8px
-- Cards: 10–12px
-- Painéis principais: 12px
-- Pills: apenas badges e estados
-
-## Sombras
-
-Usar somente quando necessário para elevação contextual.
-
-Preferir:
-
-- borda sutil;
-- contraste de superfície;
-- espaçamento;
-- hierarquia tipográfica.
-
-Evitar sombras grandes e glassmorphism em cards de dados.
-
----
-
-# 6. Arquitetura principal de navegação
-
-A navegação do produto deve ser orientada à gestão.
-
-## Navegação primária
+Navegação orientada à gestão:
 
 1. **Resumo**
 2. **Frota**
@@ -181,107 +111,66 @@ A navegação do produto deve ser orientada à gestão.
 5. **Ordens**
 6. **Base**
 
-### Não usar como item de navegação principal
+Não usar como navegação principal:
 
-- Dashboard 2023
-- Demonstrativo histórico
-- Importação
-- Backup
-- Restauração
-- Apontamentos como módulo isolado, salvo necessidade operacional comprovada
+- importação;
+- backup;
+- restauração;
+- apontamentos isolados, salvo necessidade operacional comprovada;
+- qualquer dashboard ou referência fora da operação atual.
 
-Esses elementos pertencem a contexto, suporte ou administração.
+## Cabeçalho
 
----
+Compacto, com:
 
-# 7. Cabeçalho global
+- Pulso;
+- `Copiloto Operacional AI`;
+- período ativo;
+- quantidade de equipamentos;
+- acesso discreto à Base.
 
-O cabeçalho deve ser compacto.
+Não ocupar a primeira dobra com instruções administrativas.
 
-## Deve mostrar
+## Página Resumo
 
-- Pulso
-- subtítulo: `Copiloto Operacional AI`
-- período ativo
-- quantidade de equipamentos
-- origem principal da base quando aplicável
-- ação discreta para abrir `Base / Dados`
+A home deve responder rapidamente:
 
-## Não deve ocupar a primeira dobra com
+1. Como a operação está?
+2. O que mudou?
+3. O que exige atenção?
+4. Qual ação está pendente?
 
-- texto institucional longo;
-- instruções de importação;
-- backup/restauração;
-- links de demonstração em destaque;
-- frases repetitivas sobre persistência local.
+### KPIs
 
-A administração da base deve ficar na área `Base`.
+Exibir 4–6 KPIs prioritários:
 
----
-
-# 8. Página Resumo
-
-A página principal deve ser executiva e acionável.
-
-## Primeira dobra
-
-### Linha 1 — Saúde operacional
-
-Exibir 4 a 6 KPIs, selecionados por decisão e não por disponibilidade técnica.
-
-Prioridade atual:
-
-1. Chave ligada
-2. Trabalho registrado
-3. Ociosidade / chave
-4. Desvios ativos
-5. Ordens abertas
-6. Ordens vencidas, quando houver
-
-Não exibir métrica sem contexto apenas para preencher espaço.
-
-### KPI card
-
-Cada card deve conter:
-
-- nome claro;
-- valor principal;
-- unidade;
-- contexto curto;
-- tendência ou comparação somente quando sustentada pelos dados;
-- estado semântico somente quando existe regra explícita.
+- chave ligada;
+- trabalho registrado;
+- ociosidade/chave;
+- desvios ativos;
+- ordens abertas;
+- ordens vencidas quando houver.
 
 Não inventar meta, benchmark, economia ou tendência.
 
-## Linha 2 — Prioridades agora
+### Prioridades agora
 
-Bloco principal da home.
+Mostrar no máximo 3–5 itens com:
 
-Mostrar no máximo 3 a 5 itens prioritários.
-
-Cada item deve responder:
-
-- ativo/cartão envolvido;
+- ativo/cartão relacionado;
 - data/período;
 - o que mudou;
 - evidência principal;
 - ação sugerida;
 - CTA para investigar ou abrir ordem.
 
-## Linha 3 — Evolução
+### Evolução
 
-Mostrar tendência operacional do período com gráfico legível.
+Usar linha, barras ou small multiples apenas quando a granularidade sustentar a série.
 
-Preferir:
+Não transformar total agregado de cartão em série mensal/diária.
 
-- linha;
-- barra;
-- small multiples;
-- comparação direta entre meses.
-
-Evitar gauges, donuts e pizzas quando barra ou linha responderem melhor.
-
-## Linha 4 — Execução
+### Execução
 
 Resumo de ordens:
 
@@ -289,131 +178,75 @@ Resumo de ordens:
 - em andamento;
 - vencidas;
 - concluídas recentemente;
-- ações aguardando acompanhamento.
+- aguardando acompanhamento.
 
-## Linha 5 — Qualidade da base
+## Página Frota
 
-Exibir pequeno resumo de cobertura e limitações.
-
-Não competir visualmente com os indicadores operacionais.
-
----
-
-# 9. Página Frota
-
-Objetivo: comparar equipamentos e navegar do agregado ao detalhe.
-
-## Visão de frota
-
-Usar tabela analítica com suporte visual.
-
-Colunas prioritárias:
+Tabela comparativa com:
 
 - equipamento;
-- chave ligada;
+- chave;
 - trabalho;
 - ociosidade;
 - ociosidade/chave;
-- eventos de falha;
+- falhas;
 - impactos;
 - ordens abertas;
-- status de atenção, se sustentado por regra.
+- estado de atenção quando sustentado por regra.
 
-Adicionar barras inline ou sparklines quando ajudarem comparação.
+No detalhe do equipamento:
 
-Não transformar ordenação em ranking de desempenho humano.
-
-## Detalhe do equipamento
-
-Mostrar:
-
-- KPIs do período;
-- evolução mensal;
+- KPIs;
+- evolução;
 - eventos;
 - desvios;
-- ordens relacionadas;
-- antes/depois de ações concluídas;
-- Workforce relacionado quando houver vínculo explícito.
+- ordens;
+- antes/depois;
+- cartões relacionados quando houver vínculo explícito.
 
----
+Não transformar ordenação em ranking humano.
 
-# 10. Página Desvios
+## Página Desvios
 
-Este é o núcleo do Copiloto.
-
-## Layout recomendado
+Núcleo do Copiloto.
 
 Desktop:
 
-- esquerda: lista priorizada de desvios;
-- direita: painel de investigação.
+- lista à esquerda;
+- investigação à direita.
 
-Mobile:
-
-- lista;
-- detalhe em navegação subsequente ou drawer.
-
-## Card de desvio
-
-Mostrar:
-
-- ativo;
-- data;
-- métrica principal;
-- valor atual;
-- baseline;
-- intensidade do desvio;
-- estado: `Investigar`, `Em análise`, `Ação aberta`, `Acompanhando` quando suportado pelo fluxo.
-
-## Painel de investigação
-
-Separar visualmente em quatro blocos:
+Cada caso deve organizar:
 
 ### O que aconteceu
-
-Descrição factual do sinal.
+Descrição factual.
 
 ### Evidências
-
-Mostrar:
-
 - valor atual;
 - baseline;
 - amostras;
 - origem;
 - regra aplicada;
-- eventos relacionados quando houver.
+- eventos relacionados.
 
 ### O que validar
-
-Hipóteses de investigação, sempre como hipóteses.
+Hipóteses, nunca diagnóstico automático.
 
 ### Próxima ação
-
 - abrir ordem;
 - registrar investigação;
 - navegar para ativo;
 - acompanhar indicador.
 
-Nunca apresentar hipótese como diagnóstico.
+## Página Cartões
 
----
+Objetivo: acompanhar uso e eventos por código sem criar linguagem de vigilância.
 
-# 11. Página Cartões
+> **Associação de cartão com equipamento ou evento não comprova responsabilidade individual.**
 
-Objetivo: acompanhar uso e eventos por código de cartão sem criar linguagem de vigilância.
+Mostrar somente indicadores disponíveis:
 
-## Regra fundamental
-
-> Associação de cartão com equipamento ou evento não comprova responsabilidade individual.
-
-Essa mensagem deve existir na interface de forma discreta porém visível.
-
-## Conteúdo
-
-- código completo do cartão;
-- qualidade do código: completo, incompleto, ambíguo;
-- período do Workforce;
+- código completo;
+- qualidade do código;
 - usos;
 - distância;
 - chave;
@@ -428,39 +261,20 @@ Essa mensagem deve existir na interface de forma discreta porém visível.
 - ociosidade;
 - equipamentos associados;
 - eventos associados;
-- ordens relacionadas ao equipamento, nunca automaticamente ao indivíduo.
+- ordens relacionadas ao equipamento.
 
-## Visual
+Preservar zeros à esquerda quando presentes na origem.
 
-Evitar tabela gigantesca como primeira experiência.
+Não exibir nomes de operador, score individual ou ranking de cartões.
 
-Preferir:
+## Página Ordens
 
-- busca por cartão;
-- lista resumida;
-- drawer/painel de detalhe;
-- agrupamento por categorias de indicador.
-
-Não exibir nomes de operador.
-
----
-
-# 12. Página Ordens
-
-Objetivo: transformar insight em acompanhamento operacional.
-
-## Topo
-
-KPIs:
+Topo:
 
 - abertas;
 - em andamento;
 - vencidas;
-- concluídas no período.
-
-## Corpo
-
-Usar tabela ou board simples, sem transformar o sistema em ferramenta de projeto genérica.
+- concluídas.
 
 Campos prioritários:
 
@@ -474,286 +288,130 @@ Campos prioritários:
 - origem/contexto;
 - acompanhamento pós-ação.
 
-## Pós-ação
+Pós-ação deve mostrar janela antes/depois, cobertura e a mensagem:
 
-Deve destacar:
+`comparação descritiva; não comprova causalidade`.
 
-- janela antes;
-- janela depois;
-- métrica observada;
-- diferença;
-- cobertura de dados;
-- texto explícito: `comparação descritiva; não comprova causalidade`.
+## Página Base
 
----
-
-# 13. Página Base
-
-Essa página concentra funções administrativas e rastreabilidade.
-
-## Seções
+Concentra funções administrativas e rastreabilidade.
 
 ### Dados carregados
-
 - período;
-- quantidade de ativos;
+- ativos;
 - fontes;
 - hashes;
-- data da importação;
 - cobertura.
 
 ### Importação
-
-- importar extração JSON;
+- um único controle de base operacional JSON;
 - feedback de validação;
-- conflitos/substituição de período.
+- substituição segura de períodos repetidos.
 
 ### Backup local
-
-- exportar backup;
-- restaurar backup;
-- aviso de escopo local.
+- exportar;
+- restaurar;
+- aviso de persistência local.
 
 ### Qualidade
-
 - dias ausentes;
 - campos indisponíveis;
 - relatórios zerados;
-- inconsistências conhecidas;
+- inconsistências;
 - códigos incompletos/ambíguos.
 
 ### Roadmap de persistência
+Apenas documentação: backend autenticado, banco central, multiusuário, autorização, auditoria e backup central. Não implementar nesta fase.
 
-Mostrar apenas como documentação:
+## Visualização de dados
 
-- backend autenticado;
-- banco central;
-- multiusuário;
-- autorização por operação;
-- auditoria;
-- concorrência;
-- backup central.
+Preferir:
 
-Não iniciar migração nesta fase.
+- barras horizontais;
+- linhas;
+- tabelas;
+- sparklines;
+- badges semânticos.
 
----
+Evitar:
 
-# 14. Dashboard 2023
-
-O dashboard de 2023 é **referência histórica**, não um módulo atual do produto.
-
-## Tratamento correto
-
-- remover da navegação primária;
-- manter os dados preservados internamente;
-- disponibilizar apenas em `Base > Referência histórica` ou seção colapsável equivalente;
-- usar para explicar como a operação visualizava os dados antes;
-- nunca misturar com a série atual;
-- nunca usá-lo como baseline de 2026;
-- nunca sugerir que suas fórmulas antigas são verdade operacional atual.
-
-A interface pode apresentar um texto do tipo:
-
-> `Referência histórica de agosto/2023 — preservada para comparação de cobertura de informação, não para comparação direta de desempenho.`
-
----
-
-# 15. Data visualization
-
-## Preferir
-
-- barras horizontais para comparação de ativos;
-- linhas para evolução temporal;
-- áreas apenas quando volume acumulado fizer sentido;
-- tabelas para precisão;
-- sparklines para tendência compacta;
-- heatmaps somente com escala explícita;
-- badges para estado.
-
-## Evitar
-
-- pizza/donut para muitas categorias;
+- pizza/donut com muitas categorias;
 - gauge decorativo;
-- radar chart;
-- gráficos 3D;
+- radar;
+- 3D;
 - animação contínua;
-- excesso de gradientes;
-- arco semicircular para KPI simples.
+- gradientes excessivos.
 
-## Regras
+Regras:
 
-- eixo e unidade sempre claros;
+- eixo e unidade claros;
 - não truncar escala de forma enganosa;
 - não usar cor como única codificação;
-- manter tooltip e legenda quando necessário;
-- não criar série mensal a partir de total trimestral Workforce;
-- não interpolar ausência de dado como zero.
+- não interpolar ausência como zero;
+- não ratear total agregado de cartão.
 
----
-
-# 16. Tabelas
-
-Tabelas são parte central do produto, mas precisam ser escaneáveis.
-
-## Regras
+## Tabelas
 
 - header sticky em tabelas longas;
-- alinhamento numérico à direita;
-- primeira coluna fixa quando útil;
-- zebra muito sutil ou divisores leves;
-- ordenação clara;
-- filtros acima da tabela;
-- busca quando houver muitos cartões;
-- ações de linha no final;
-- paginação ou virtualização quando necessário.
+- números alinhados à direita;
+- divisores leves;
+- filtros próximos;
+- busca quando útil;
+- ações no fim da linha;
+- densidade legível.
 
-Não usar fonte excessivamente pequena para aumentar densidade.
+## Estados e mensagens
 
----
+Empty state deve explicar o que falta e o que fazer.
 
-# 17. Filtros
+Warnings devem ser específicos e acionáveis.
 
-Filtros devem ficar próximos do conteúdo afetado.
+Erros devem ser humanos, com detalhe técnico secundário quando útil.
 
-## Padrão
+## Linguagem
 
-- período;
-- equipamento;
-- cartão;
-- status;
-- prioridade.
+Preferir:
 
-O usuário deve sempre conseguir identificar o filtro ativo.
+- `Desvio para investigar`;
+- `Evidência observada`;
+- `Hipótese para validação`;
+- `Ação recomendada`;
+- `Comparação descritiva`;
+- `Dados insuficientes`.
 
-Usar `Todos` como estado explícito.
+Evitar:
 
-Evitar repetir os mesmos filtros em múltiplos blocos da mesma página sem sincronização.
+- `Erro do operador`;
+- `Operador problemático`;
+- `Causa confirmada` sem prova;
+- `Economia estimada` sem dado;
+- `Risco de pane` sem modelo calibrado.
 
----
+## Responsividade
 
-# 18. Estados e mensagens
+Validar:
 
-## Empty state
+- 1366×768;
+- 1440×900;
+- tablet;
+- mobile ~390px.
 
-Explicar:
+Desktop é prioridade do MVP.
 
-- o que está ausente;
-- por que isso importa;
-- o que o usuário pode fazer.
-
-Exemplo:
-
-`Nenhum Workforce KPI carregado para este período. Importe uma extração em Base para habilitar indicadores por cartão.`
-
-## Warning
-
-Deve ser específico e acionável.
-
-## Error
-
-Mostrar mensagem humana e, quando útil, detalhe técnico secundário.
-
-## Loading
-
-Preferir skeleton ou estado simples. Não usar animações chamativas.
-
----
-
-# 19. Conteúdo e linguagem
-
-## Tom
-
-- direto;
-- técnico quando necessário;
-- sem jargão gratuito;
-- sem linguagem de julgamento;
-- sem afirmar causalidade não comprovada.
-
-## Preferir
-
-- `Desvio para investigar`
-- `Evidência observada`
-- `Hipótese para validação`
-- `Ação recomendada`
-- `Comparação descritiva`
-- `Dados insuficientes`
-
-## Evitar
-
-- `Operador problemático`
-- `Erro do operador`
-- `Causa confirmada` sem prova
-- `Economia estimada` sem dado
-- `Risco de pane` sem modelo calibrado
-- `Performance ruim` baseado apenas em associação de cartão
-
----
-
-# 20. Responsividade
-
-## Desktop
-
-- largura útil máxima: 1440–1600px;
-- grid 12 colunas;
-- cards executivos em 4–6 colunas conforme conteúdo;
-- investigação com master-detail.
-
-## Tablet
-
-- KPIs em 2 colunas;
-- tabelas com scroll horizontal controlado;
-- filtros empilhados quando necessário.
-
-## Mobile
-
-- 1 coluna;
-- KPIs resumidos;
-- detalhe em drawer/página;
-- ações com área mínima de toque adequada;
-- nenhuma função essencial dependente de hover.
-
----
-
-# 21. Acessibilidade
+## Acessibilidade
 
 Obrigatório:
 
 - contraste AA;
 - foco visível;
-- navegação por teclado;
-- labels reais em inputs;
-- `aria-label` quando necessário;
-- semântica de headings correta;
+- teclado;
+- labels reais;
+- headings semânticos;
+- tabelas semânticas;
 - não depender apenas de cor;
-- `prefers-reduced-motion` respeitado;
-- tabelas com cabeçalhos semânticos;
-- mensagens de status acessíveis.
+- `prefers-reduced-motion`.
 
----
-
-# 22. Microinterações
-
-Permitido:
-
-- hover discreto;
-- transição de 120–180ms;
-- realce de linha selecionada;
-- expansão suave de detalhe;
-- feedback imediato de ação.
-
-Não permitido:
-
-- partículas;
-- neon;
-- glow persistente;
-- parallax;
-- glassmorphism generalizado;
-- animação que dificulte leitura;
-- efeitos WebGL no dashboard.
-
----
-
-# 23. Regras de preservação funcional
+## Preservação funcional
 
 Uma revisão visual nunca deve alterar silenciosamente:
 
@@ -761,70 +419,43 @@ Uma revisão visual nunca deve alterar silenciosamente:
 - baseline;
 - z-score;
 - reconciliação de períodos;
-- regras de importação;
-- IDs da operação;
 - código do cartão;
 - guardrails de causalidade;
 - persistência local;
-- separação 2023 / atual / sintético;
 - comportamento de ordens;
-- dados de Workforce;
-- validações existentes.
+- indicadores por cartão;
+- separação real × sintético.
 
-Refatorar apresentação não autoriza refatorar domínio sem necessidade.
+## Não fazer
 
----
+- não recriar funcionalidades prontas;
+- não voltar para dark como padrão;
+- não mostrar dados fora da operação atual;
+- não colocar importação/backup na primeira dobra;
+- não criar ranking individual;
+- não atribuir responsabilidade por associação;
+- não inventar metas, diagnóstico ou economia;
+- não ratear totais agregados;
+- não misturar demo sintética com dados reais.
 
-# 24. Do / Don't
+## Definition of Done
 
-## Do
-
-- mostrar primeiro o que exige atenção;
-- usar espaço em branco para hierarquia;
-- resumir antes de detalhar;
-- conectar insight a ação;
-- conectar ação a acompanhamento;
-- usar cores semânticas com parcimônia;
-- mostrar fonte e limitação;
-- manter dados administrativos fora da home;
-- preservar o código do cartão sem nomes.
-
-## Don't
-
-- reconstruir funcionalidades já prontas;
-- criar dashboard escuro como padrão;
-- manter `Dashboard 2023` como aba principal;
-- colocar importação/backup na primeira dobra;
-- mostrar dezenas de métricas com o mesmo peso;
-- criar ranking de operadores;
-- transformar associação de cartão em responsabilidade;
-- inventar metas ou economia;
-- distribuir total trimestral Workforce por mês/dia;
-- misturar demo sintética com dados reais;
-- usar UI bonita para esconder ausência de evidência.
-
----
-
-# 25. Definition of Done visual
-
-Uma entrega de UI do Pulso só está pronta quando:
+A UI está pronta quando:
 
 1. um gestor entende a situação geral em menos de 10 segundos;
-2. a principal prioridade fica visível sem scroll excessivo;
+2. a principal prioridade fica visível rapidamente;
 3. a origem do dado é recuperável;
-4. existe caminho claro de desvio → evidência → ação → acompanhamento;
+4. existe fluxo claro `desvio → evidência → ação → acompanhamento`;
 5. funções administrativas não competem com a operação;
-6. a visão por cartão não sugere culpa individual;
-7. a interface funciona em 1366×768, 1440p e mobile;
-8. teclado e foco continuam funcionais;
-9. nenhum cálculo ou contrato foi alterado sem teste;
-10. `npm run test:hyster`, `npm run lint` e `npm run build` continuam verdes.
+6. visão por cartão não sugere culpa individual;
+7. a UI funciona nas resoluções-alvo;
+8. teclado e foco funcionam;
+9. nenhum cálculo foi alterado sem teste;
+10. não existe referência de dados históricos externos à operação atual;
+11. `npm run test:hyster`, `npm run lint` e `npm run build` ficam verdes.
 
----
-
-# 26. Referências
+## Referências
 
 - Carbon Design System: https://carbondesignsystem.com/
-- Carbon dashboards/data visualization: https://carbondesignsystem.com/data-visualization/
+- Carbon data visualization: https://carbondesignsystem.com/data-visualization/
 - awesome-design-md: https://github.com/voltagent/awesome-design-md
-- Projeto Pulso: este repositório e seus contratos atuais
