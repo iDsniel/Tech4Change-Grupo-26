@@ -6,8 +6,8 @@ Usage:
 
 Requires openpyxl (read-only); original workbooks are never modified. Indicators
 by card are stored only at their source-period granularity; aggregated totals are
-never spread across months or days. Historical discovery dashboards are not part
-of the operational package.
+never spread across months or days. Historical discovery dashboards and point-in-
+time snapshots outside the reporting period are not part of this package.
 """
 import argparse
 import hashlib
@@ -19,8 +19,10 @@ from pathlib import Path
 
 import openpyxl
 
+# currentFleetStatus is intentionally excluded: the available export is a point-in-time
+# snapshot after the Jun-Aug reporting window, so including it would mix periods.
 FILES = ["assetListing", "DailyFleetUtilization", "utilizationKPITier7",
-         "AssetOperatingHistory", "currentFleetStatus", "PMTrackerDW",
+         "AssetOperatingHistory", "PMTrackerDW",
          "fuelUsageSummaryequipment", "costOfOperationTier7"]
 
 WORKFORCE_TOTAL_COLUMNS = {
@@ -49,11 +51,8 @@ MONTHS = {name: i for i, name in enumerate(
 def card_code(value):
     if value is None or value == "":
         return None
-    # Strings are never numeric-normalized: text such as 00123 stays 00123.
     if isinstance(value, str):
         return value.strip()
-    # Numeric source cells cannot prove whether a leading zero existed in a
-    # different system; keep the value seen in this export without padding.
     if isinstance(value, (int, float)) and float(value).is_integer():
         return str(int(value))
     return str(value).strip()
@@ -118,7 +117,6 @@ def convert_workforce(path, product_ids, expected_start, expected_end):
         for (row, col), expected in expected_headers.items():
             if report.cell(row, col).value != expected:
                 raise ValueError(f"Unsupported Workforce KPI layout at row {row}, column {col}")
-        # Every imported counter is explicitly the source Total Usage column.
         for column in WORKFORCE_TOTAL_COLUMNS.values():
             header = str(report.cell(2, column + 1).value or "")
             if not header.startswith("Total Usage"):
@@ -188,8 +186,7 @@ def convert(folder, workforce=None):
         books[name] = [list(sheet.values) for sheet in book]
         sources.append(source_metadata(path, book))
         book.close()
-    # Fail closed when the vendor changes column placement; never silently map
-    # a different counter into the existing contract.
+
     headers = [
         ("assetListing", 1, 0, 2, "ID de produto"),
         ("DailyFleetUtilization", 1, 1, 1, "Date"),
@@ -198,18 +195,19 @@ def convert(folder, workforce=None):
         ("utilizationKPITier7", 1, 0, 13, "Interruptor de chave 'Na' duração"),
         ("utilizationKPITier7", 1, 0, 31, "Tempo ocioso"),
         ("AssetOperatingHistory", 1, 0, 17, "Nome do evento"),
-        ("currentFleetStatus", 2, 1, 6, "Status"),
         ("fuelUsageSummaryequipment", 1, 0, 10, "Uso total\n(litros)"),
         ("costOfOperationTier7", 1, 0, 11, "Custo total da operação"),
     ]
     for file, sheet, row, col, expected in headers:
         if books[file][sheet][row][col] != expected:
             raise ValueError(f"Unsupported layout: {file}, row {row + 1}, column {col + 1}")
+
     assets, ids = [], {}
     for r in books["assetListing"][1][1:]:
         alias = "EP" + str(r[5]).zfill(2)
         ids[r[2]] = alias
         assets.append({"assetId": alias, "serviceMeterHours": r[7]})
+
     daily, seen = [], set()
     asset = None
     for row, r in enumerate(books["DailyFleetUtilization"][1][3:], 4):
@@ -221,32 +219,40 @@ def convert(folder, workforce=None):
         seen.add((asset, date))
         daily.append(dict(assetId=asset, date=date, keyHours=r[2], presenceHours=r[3],
                           workHours=r[4], idleHours=r[5], waitHours=r[10], sourceRow=row))
+
+    dates = [r["date"] for r in daily]
+    period_start, period_end = min(dates), max(dates)
+
     kpi = []
     for row, r in enumerate(books["utilizationKPITier7"][1][2:], 3):
         kpi.append(dict(assetId=ids[r[2]], serviceHours=r[9], monitoredHours=r[12],
                         keyHours=r[15], presenceHours=r[18], motionHours=r[21],
                         hydraulicHours=r[24], workHours=r[27], liftHours=r[30],
                         idleHours=r[33], loadHours=r[36], sourceRow=row))
+
     events = []
     for row, r in enumerate(books["AssetOperatingHistory"][1][1:], 2):
-        events.append(dict(assetId=ids[r[1]], date=r[8].date().isoformat(), time=r[9],
+        date = r[8].date().isoformat()
+        if date < period_start or date > period_end:
+            continue
+        events.append(dict(assetId=ids[r[1]], date=date, time=r[9],
                            type=r[17], cardCode=card_code(r[12]), sourceCritical=r[13] == "Sim", sourceStatus=r[16], sourceRow=row))
-    status = [dict(assetId=ids[r[1]], status=r[6], lastAccess=r[9])
-              for r in books["currentFleetStatus"][2][2:]]
+
     fuel = [dict(assetId=ids[r[3]], reportedLiters=r[10])
             for r in books["fuelUsageSummaryequipment"][1][1:]]
     costs = [dict(assetId=ids[r[1]], startHours=r[6], endHours=r[7], intervalHours=r[8],
                   reportedCostPerHour=r[10], reportedTotal=r[11])
              for r in books["costOfOperationTier7"][1][2:]]
-    dates = [r["date"] for r in daily]
+
     operation = str(books["assetListing"][1][1][0])
-    result = dict(schemaVersion=2, operationId=hashlib.sha256(operation.encode()).hexdigest()[:16], provider="Hyster Tracker", periodStart=min(dates), periodEnd=max(dates),
+    result = dict(schemaVersion=2, operationId=hashlib.sha256(operation.encode()).hexdigest()[:16],
+                  provider="Hyster Tracker", periodStart=period_start, periodEnd=period_end,
                   granularity="asset-day", assets=sorted(assets, key=lambda x: x["assetId"]),
-                  daily=daily, kpi=kpi, events=events, currentStatus=status, fuel=fuel, costs=costs,
+                  daily=daily, kpi=kpi, events=events, currentStatus=[], fuel=fuel, costs=costs,
                   maintenanceAvailable=not any("Nenhum PM" in str(c) for s in books["PMTrackerDW"] for r in s for c in r),
                   sources=sources)
     if workforce:
-        result["workforce"], workforce_source = convert_workforce(workforce, ids, result["periodStart"], result["periodEnd"])
+        result["workforce"], workforce_source = convert_workforce(workforce, ids, period_start, period_end)
         result["sources"].append(workforce_source)
         result["schemaVersion"] = 3
     return result
