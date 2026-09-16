@@ -1,8 +1,10 @@
 # Pulso — gestão da operação e manutenção
 
-A gestão operacional está em **[/hyster](http://localhost:3000/hyster)**: operação, cartões e eventos, ordens de manutenção, apontamentos e dashboard histórico de 2023. Importe a base JSON v2 preparada. O histórico, ordens e apontamentos persistem neste navegador; exporte backup para transferir a outro computador. A tela inicial mantém a demonstração sintética e tem um link para a gestão real.
+A gestão operacional está em **[/hyster](http://localhost:3000/hyster)**: operação, indicadores por cartão e eventos, ordens de manutenção e apontamentos. O fluxo real usa **uma única base operacional JSON**; os dados, ordens e apontamentos persistem neste navegador e podem ser exportados em backup.
 
-Veja [importação, métricas e limitações](docs/hyster-real-data.md). Dados reais não são publicados neste repositório. A análise real não usa estimativas sintéticas de combustível, manutenção ou economia.
+Para a amostra atual do Tech4Change, a base real contém somente dados de **01/06/2026 a 31/08/2026**. O dashboard antigo usado durante a descoberta do produto não integra o Pulso nem o JSON operacional.
+
+Veja [importação, métricas e limitações](docs/hyster-real-data.md) e [decisão de escopo da base atual](docs/DECISION-2026-current-data-only.md). Dados reais não são publicados neste repositório. A análise real não usa estimativas sintéticas de combustível, manutenção ou economia.
 
 # Copiloto Operacional AI — Tech4Change Grupo 26
 
@@ -284,7 +286,7 @@ Concluído:
 - [x] pipeline comum independente da fonte;
 - [x] adapter Konecranes mock;
 - [x] preservação de metadados de ativos;
-- [x] remoção do gerador legado do core analítico;
+- [x] remoção do gerador antigo do core analítico;
 - [x] baseline automático;
 - [x] z-score;
 - [x] Isolation Forest;
