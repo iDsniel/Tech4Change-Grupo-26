@@ -8,6 +8,7 @@ import {
   operationalExplanationPacket,
   type OperationalAIInsight
 } from "@/lib/operationalAI";
+import { buildOperationalContext } from "@/lib/operationalContext";
 import type { OperationalExplanation } from "@/lib/operationalExplanation";
 
 const fmt = (value: number, digits = 2) => value.toLocaleString("pt-BR", { maximumFractionDigits: digits });
@@ -65,13 +66,14 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
   const [explanation, setExplanation] = useState<ExplanationResponse>();
   const [explanationError, setExplanationError] = useState("");
   const selected = useMemo(() => filtered.find((item) => item.id === selectedId) ?? filtered.find((item) => item.id === initialInsightId) ?? filtered[0], [filtered, initialInsightId, selectedId]);
+  const selectedContext = useMemo(() => selected ? buildOperationalContext({ data, insight: selected }) : undefined, [data, selected]);
 
   useEffect(() => {
     setSelectedId(initialInsightId && filtered.some((item) => item.id === initialInsightId) ? initialInsightId : filtered[0]?.id);
   }, [assetFilter, cardFilter, dateFrom, dateTo, data.operationId, initialInsightId]);
 
   useEffect(() => {
-    if (!selected) {
+    if (!selected || !selectedContext) {
       setExplanation(undefined);
       return;
     }
@@ -81,7 +83,7 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
     fetch("/api/operations/explain", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ evidence: operationalExplanationPacket(selected) }),
+      body: JSON.stringify({ evidence: { ...operationalExplanationPacket(selected), context: selectedContext } }),
       signal: controller.signal
     })
       .then(async (response) => {
@@ -93,7 +95,7 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
         if (error.name !== "AbortError") setExplanationError(error.message);
       });
     return () => controller.abort();
-  }, [selected]);
+  }, [selected, selectedContext]);
 
   return <section className="aiWorkspace humanAI">
     <aside className="aiQueue">
@@ -123,10 +125,25 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
 
         <article className="copilotExplanation">
           <div className="cardTitle"><Sparkles size={18} /> Leitura do copiloto</div>
-          {!explanation && !explanationError && <p>Organizando as evidências em uma explicação simples…</p>}
+          {!explanation && !explanationError && <p>Organizando telemetria, eventos e contexto operacional em uma explicação simples…</p>}
           {explanationError && <p>{explanationError}</p>}
           {explanation && <><h3>{explanation.explanation.headline}</h3><p>{explanation.explanation.explanation}</p><p><strong>Por que vale olhar:</strong> {explanation.explanation.whyItMatters}</p><small>{explanation.explanation.uncertainty}</small></>}
         </article>
+
+        {selectedContext && <article className="contextEvidence">
+          <div className="cardTitle"><ShieldCheck size={18} /> Contexto usado pelo Pulso</div>
+          <div className="contextFacts">
+            <span><strong>{fmt(selectedContext.daily.workPct ?? 0)}%</strong> trabalho/chave no dia</span>
+            <span><strong>{fmt(selectedContext.daily.idlePct ?? 0)}%</strong> ociosidade/chave no dia</span>
+            <span><strong>{selectedContext.events.impacts}</strong> impacto(s) no dia</span>
+            <span><strong>{selectedContext.events.faults}</strong> falha(s) no dia</span>
+            {selectedContext.aggregateTelemetry?.ratios.hydraulicPct != null && <span><strong>{fmt(selectedContext.aggregateTelemetry.ratios.hydraulicPct)}%</strong> hidráulica/chave no agregado</span>}
+            {selectedContext.aggregateTelemetry?.ratios.motionPct != null && <span><strong>{fmt(selectedContext.aggregateTelemetry.ratios.motionPct)}%</strong> movimento/chave no agregado</span>}
+            {selectedContext.aggregateTelemetry?.ratios.marchPct != null && <span><strong>{fmt(selectedContext.aggregateTelemetry.ratios.marchPct)}%</strong> marcha/chave no agregado</span>}
+          </div>
+          {selectedContext.aggregateTelemetry && <small>Hidráulica, movimento e marcha representam {selectedContext.aggregateTelemetry.periodStart} → {selectedContext.aggregateTelemetry.periodEnd}; o Pulso não transforma esse total em valor diário.</small>}
+          {!selectedContext.availability.demandOrProduction && <small>Demanda/produção do dia não está disponível; o Pulso não classifica automaticamente baixa atividade como baixa produtividade.</small>}
+        </article>}
 
         <section className="actionDecision">
           <div><span className="sectionEyebrow">PRÓXIMA AÇÃO</span><h3>Valide em campo e registre o que foi decidido</h3><p>{orientation(selected)}</p><small>A associação de cartão com equipamento ou evento não comprova responsabilidade individual.</small></div>
@@ -134,7 +151,7 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
         </section>
 
         <article className="contextEvidence">
-          <div className="cardTitle"><ShieldCheck size={18} /> Contexto disponível</div>
+          <div className="cardTitle"><ShieldCheck size={18} /> Contexto de eventos</div>
           <div className="contextFacts"><span><strong>{selected.relatedEvents.impacts}</strong> impacto(s)</span><span><strong>{selected.relatedEvents.faults}</strong> falha(s)</span><span><strong>{selected.relatedCardCodes.length}</strong> cartão(ões) associado(s)</span></div>
         </article>
 
