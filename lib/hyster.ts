@@ -1,8 +1,13 @@
 export type Daily = { assetId: string; date: string; keyHours: number; presenceHours: number; workHours: number; idleHours: number; waitHours: number; sourceRow: number };
 export type HysterEvent = { assetId: string; date: string; time: string; type: string; cardCode?: string | null; sourceCritical: boolean; sourceStatus: string; sourceRow: number };
+export type WorkforceMetricKey = "serviceHours" | "driveHours" | "hydraulicMeterHours" | "tractionMeterHours" | "distanceKm" | "monitoredHours" | "keyHours" | "presenceHours" | "motionHours" | "hydraulicHours" | "workHours" | "liftHours" | "lowerHours" | "highSpeedHours" | "reverseHours" | "forwardHours" | "idleHours";
+export type WorkforceMetrics = Partial<Record<WorkforceMetricKey, number>>;
+export type WorkforceAsset = { assetId: string; usageCount: number; metrics: WorkforceMetrics; sourceRow: number };
+export type WorkforceCard = { cardCode: string | null; cardQuality: "complete" | "incomplete" | "ambiguous"; usageCount: number; metrics: WorkforceMetrics; assets: WorkforceAsset[]; sourceRow: number };
+export type WorkforceData = { periodStart: string; periodEnd: string; granularity: "card-period"; unitSystem: "metric"; sourceFile: string; sha256: string; cards: WorkforceCard[]; warnings: string[] };
 export type LegacyData = { periodLabel: string; sourceFile: string; sha256: string; rows: { rowId: string; cardCode: string | null; cardQuality: string; sourceRow: number; metrics: Record<string, number | null>; legacyCalculated: Record<string, number | null>; legacyDisplay?: Record<string, number | string> }[]; impactArchive: { dateText: string; cardCode: string; type: string; sourceRow: number }[]; displayImpactTotal: number; displayFuelKg: number; warnings: string[] };
 export type HysterData = {
-  schemaVersion: number; provider: string; periodStart: string; periodEnd: string; operationId?: string; legacy?: LegacyData;
+  schemaVersion: number; provider: string; periodStart: string; periodEnd: string; operationId?: string; legacy?: LegacyData; workforce?: WorkforceData;
   assets: { assetId: string; serviceMeterHours: number }[];
   daily: Daily[]; events: HysterEvent[];
   kpi: { assetId: string; keyHours: number; workHours: number; idleHours: number; serviceHours: number; presenceHours?: number; motionHours?: number; hydraulicHours?: number; liftHours?: number; monitoredHours?: number; loadHours?: number }[];
@@ -12,13 +17,19 @@ export type HysterData = {
   maintenanceAvailable: boolean;
   sources: { file: string; sha256: string; sheets: { name: string; rows: number; state: string }[] }[];
 };
+export const workforceMetricKeys: WorkforceMetricKey[] = ["serviceHours", "driveHours", "hydraulicMeterHours", "tractionMeterHours", "distanceKm", "monitoredHours", "keyHours", "presenceHours", "motionHours", "hydraulicHours", "workHours", "liftHours", "lowerHours", "highSpeedHours", "reverseHours", "forwardHours", "idleHours"];
 const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
 const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const validCardCode = (v: unknown) => typeof v === "string" && /^\d{1,64}$/.test(v);
+function validateWorkforceMetrics(metrics: WorkforceMetrics) {
+  if (!metrics || typeof metrics !== "object" || Array.isArray(metrics)) throw new Error("Métricas Workforce inválidas.");
+  for (const [key, value] of Object.entries(metrics)) if (!workforceMetricKeys.includes(key as WorkforceMetricKey) || !finite(value)) throw new Error("Métrica Workforce inválida.");
+}
 
 // Fail closed before rendering imported files. Never interpret arbitrary JSON as telemetry.
 export function validateHyster(value: unknown): HysterData {
   const d = value as HysterData;
-  if (!d || ![1, 2].includes(d.schemaVersion) || d.provider !== "Hyster Tracker" || !isDate(d.periodStart) || !isDate(d.periodEnd) || d.periodStart > d.periodEnd) throw new Error("Formato ou período Hyster inválido.");
+  if (!d || ![1, 2, 3].includes(d.schemaVersion) || d.provider !== "Hyster Tracker" || !isDate(d.periodStart) || !isDate(d.periodEnd) || d.periodStart > d.periodEnd) throw new Error("Formato ou período Hyster inválido.");
   if (d.operationId !== undefined && !/^[a-f0-9]{16}$/.test(d.operationId)) throw new Error("Operação inválida.");
   for (const key of ["assets", "daily", "events", "kpi", "currentStatus", "fuel", "costs", "sources"] as const) {
     if (!Array.isArray(d[key])) throw new Error(`Coleção ausente: ${key}`);
@@ -36,6 +47,29 @@ export function validateHyster(value: unknown): HysterData {
   for (const e of d.events) if (!e || !ids.has(e.assetId) || !isDate(e.date) || e.date < d.periodStart || e.date > d.periodEnd || typeof e.type !== "string" || typeof e.time !== "string" || typeof e.sourceCritical !== "boolean") throw new Error("Evento inválido.");
   for (const e of d.events) if (e.cardCode != null && (typeof e.cardCode !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(e.cardCode))) throw new Error("Código de cartão inválido.");
   for (const r of d.kpi) for (const key of ["presenceHours", "motionHours", "hydraulicHours", "liftHours", "monitoredHours", "loadHours"] as const) if (r[key] !== undefined && !finite(r[key])) throw new Error("Contador adicional inválido.");
+  if (d.workforce) {
+    const w = d.workforce;
+    if (d.schemaVersion < 3 || !isDate(w.periodStart) || !isDate(w.periodEnd) || w.periodStart > w.periodEnd || w.periodStart < d.periodStart || w.periodEnd > d.periodEnd || w.granularity !== "card-period" || w.unitSystem !== "metric" || typeof w.sourceFile !== "string" || !/^[a-f0-9]{64}$/.test(w.sha256) || !Array.isArray(w.cards) || w.cards.length > 10000 || !Array.isArray(w.warnings) || w.warnings.some(item => typeof item !== "string")) throw new Error("Workforce KPI inválido.");
+    const rowIds = new Set<number>();
+    const codeRows = new Map<string, WorkforceCard[]>();
+    for (const card of w.cards) {
+      if (!card || !["complete", "incomplete", "ambiguous"].includes(card.cardQuality) || !Number.isInteger(card.sourceRow) || card.sourceRow < 1 || !Number.isInteger(card.usageCount) || card.usageCount < 0 || !Array.isArray(card.assets)) throw new Error("Cartão Workforce inválido.");
+      if (rowIds.has(card.sourceRow)) throw new Error("Linha Workforce duplicada.");
+      rowIds.add(card.sourceRow);
+      if (card.cardQuality === "incomplete") {
+        if (card.cardCode !== null) throw new Error("Código Workforce incompleto deve permanecer nulo.");
+      } else if (!validCardCode(card.cardCode)) throw new Error("Código Workforce inválido.");
+      validateWorkforceMetrics(card.metrics);
+      const cardAssetIds = new Set<string>();
+      for (const asset of card.assets) {
+        if (!asset || !ids.has(asset.assetId) || cardAssetIds.has(asset.assetId) || !Number.isInteger(asset.usageCount) || asset.usageCount < 0 || !Number.isInteger(asset.sourceRow) || asset.sourceRow < 1) throw new Error("Recorte Workforce por equipamento inválido.");
+        cardAssetIds.add(asset.assetId);
+        validateWorkforceMetrics(asset.metrics);
+      }
+      if (card.cardCode) codeRows.set(card.cardCode, [...(codeRows.get(card.cardCode) ?? []), card]);
+    }
+    for (const rows of codeRows.values()) if (rows.length > 1 && rows.some(row => row.cardQuality !== "ambiguous")) throw new Error("Código Workforce duplicado sem sinalização de ambiguidade.");
+  }
   if (d.legacy) {
     const l = d.legacy;
     if (typeof l.periodLabel !== "string" || typeof l.sourceFile !== "string" || !/^[a-f0-9]{64}$/.test(l.sha256) || !Array.isArray(l.rows) || !Array.isArray(l.warnings) || l.warnings.some(w => typeof w !== "string") || !Array.isArray(l.impactArchive) || !finite(l.displayImpactTotal) || !finite(l.displayFuelKg)) throw new Error("Histórico legado inválido.");
