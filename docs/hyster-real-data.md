@@ -1,47 +1,69 @@
-# Pulso — Hyster Tracker
+# Pulso — operação e manutenção com dados Hyster
 
-## Uso
-
-Abra `/hyster` e importe o JSON gerado pelo conversor. O parser lê os oito XLSX, incluindo as abas de dados, mantém referências de linha e hashes SHA-256 e emite apenas campos permitidos. Nomes, sobrenomes, cartões, números de série, IDs do produto, site e departamento não saem no JSON. Os rótulos EP identificam equipamentos, nunca pessoas.
+## Executar e importar
 
 ```bash
 python -m pip install -r scripts/requirements-hyster.txt
-python scripts/import_hyster.py /caminho/relatorios --output .data/hyster.json
+python scripts/import_hyster.py /caminho/relatorios --legacy /caminho/dashboard-historico.xlsx --output .data/hyster.json
 npm install
 npm run dev
 ```
 
-Selecione `.data/hyster.json` no navegador em `http://localhost:3000/hyster`. O usuário também pode carregar a base já preparada, sem Python. O processamento da interface é local ao navegador; não há upload, API de ingestão, armazenamento de operadores ou envio ao LLM. Recarregar descarta a base carregada. O arquivo real e os XLSX não devem ser commitados no repositório público. `.data/` e `*.xlsx` são ignorados.
+Abra `http://localhost:3000/hyster` e importe `.data/hyster.json`. A opção `--legacy` é opcional e específica ao dashboard histórico inspecionado. O JSON pronto dispensa Python no computador de apresentação. As bases v1 continuam legíveis, mas não contêm cartões; para usar o novo contrato, gere a base v2. Não misture v1 e v2 no mesmo histórico: reexporte as extrações antigas antes de restaurar a operação completa.
 
-## Contrato de origem
+## Módulos
 
-| Exportação | Uso | Restrição |
-| --- | --- | --- |
-| assetListing | Cadastro e horímetro do snapshot | Não é o horímetro no encerramento histórico |
-| DailyFleetUtilization | Série equipamento-dia e baseline | Datas MM/DD/YYYY; equipamento herdado do bloco; dias ausentes são desconhecidos |
-| utilizationKPITier7 | Conciliação por equipamento | Agregado do período; médias mensais não são séries mensais |
-| AssetOperatingHistory | Eventos tipados e rastreáveis | Crítico na origem não é severidade derivada; eventos não são panes independentes |
-| currentFleetStatus | Snapshot separado | Não mede disponibilidade histórica |
-| PMTrackerDW | Presença/ausência de dados | Nenhum registro não significa manutenção em dia |
-| fuelUsageSummaryequipment | Valores reportados | Zeros não provam ausência de consumo |
-| costOfOperationTier7 | Horímetro inicial/final e completude | Custo zero com total ausente não prova custo operacional zero |
+| Módulo | Comportamento |
+| --- | --- |
+| Operação | Horas, razões ponderadas, comparação mensal, presença, movimento, hidráulica e elevação; sinais estatísticos por equipamento |
+| Cartões e eventos | Consulta por código do cartão, equipamento e mês; tipo, data/hora e linha de origem; sem nomes e sem ranking individual |
+| Ordens e manutenção | Preventiva, corretiva/investigação e melhoria operacional; equipe, prazo, prioridade, situação, histórico e conclusão real |
+| Apontamentos | Totais por equipamento/dia de horas planejadas, parada no período planejado, abastecimento em L ou kg, custo em R$ e produção em t ou movimentos |
+| Dashboard 2023 | Visão geral e individual, métricas brutas, cálculos da Base dados e quadro estático Auxiliar Oficial preservados com origem e ressalvas |
 
-## Indicadores e detecção
+Um desvio pode abrir o formulário de ordem com equipamento e contexto preenchidos. A criação e o encerramento dependem de ação humana. Após a conclusão, compare a razão ociosidade/chave nas janelas de 14 dias anteriores e posteriores, excluindo o dia da ação. Só há variação calculada com pelo menos cinco registros observados em cada lado. Essa comparação não prova causalidade nem normaliza demanda.
 
-- Razão de ociosidade: soma de idleHours / soma de keyHours. A base diária é a referência para filtros e agregações. Não usar a média de percentuais exibidos na origem.
-- Trabalho/chave não mede produtividade física (faltam toneladas, ciclos ou entregas). Sem calendário planejado, não há disponibilidade nem taxa de utilização da capacidade.
-- Não somar movimento e hidráulica, nem assumir trabalho + ociosidade = chave. Contadores podem se sobrepor ou usar semânticas diferentes.
-- Baseline exploratório: mesmo equipamento, 28 dias anteriores, ao menos 10 registros com chave ≥ 1 h. Média e desvio padrão amostral da razão diária. Sinal com z ≥ 2 e diferença ≥ 10 pontos percentuais. Zero variância não recebe z artificial. A data avaliada e datas futuras nunca entram na referência.
-- Filtros mensais restringem a avaliação, não apagam o histórico anterior necessário ao baseline. Equipamentos não são agrupados como equivalentes.
-- Z-score é evidência exploratória, não probabilidade de falha, causalidade ou diagnóstico. Critérios precisam ser calibrados com a operação; não houve validação supervisionada ou cálculo de precisão/recall.
-- O modelo Isolation Forest e a geração de explicações do cenário sintético continuam separados. O modo real usa texto determinístico ligado às evidências; não afirma treinamento ou validação do modelo sintético na frota real.
-- Falhas de sistema e impactos pedem consulta aos códigos e às ordens de serviço. Não há duração de indisponibilidade, manutenção preditiva ou ganho financeiro demonstrado.
-- Registro persistente de ação e avaliação pós-intervenção ainda pertencem à demo sintética. A visão Hyster não finge transferir esses resultados ao histórico real.
+Apontamentos são totais diários, não lançamentos individuais de abastecimento. Há uma linha por equipamento/dia; use Editar para corrigir. Disponibilidade considera apenas dias com horas planejadas > 0 e parada informada dentro desse planejamento. Nunca preencher ausência com zero, misturar kg com L ou toneladas com movimentos.
 
-## Próximos dados que destravam valor
+## Histórico e persistência
 
-Códigos e duração de falhas, manutenção realizada e programada, abastecimentos medidos, calendário de turnos, papel de cada equipamento e volume movimentado. Com isso, validar recorrência, normalizar demanda e medir efeito de ações humanas.
+IndexedDB salva bases, ordens e apontamentos no navegador e na origem atual. Reabrir a página recupera o workspace. Exportar backup inclui todo esse estado; Restaurar valida o arquivo e avisa que substituirá o estado local. Exporte antes de mudar de computador, navegador, porta ou limpar os dados do site.
+
+Esta entrega é local, de um usuário: não há sincronização, login, multiempresa no servidor ou gestão de concorrência entre abas/usuários. A API SQLite da demonstração sintética permanece separada. Para produção compartilhada, é necessário backend autenticado, autorização por operação, banco central e política de backup.
+
+Uma nova extração do mesmo período substitui aquela importação. Em períodos sobrepostos, a extração importada por último substitui os dias e eventos dos equipamentos daquele recorte, inclusive dias agora ausentes. Eventos repetidos na origem são preservados; não são deduplicados como se fossem panes. Importações de operações com identificadores diferentes são recusadas. Os contadores agregados não são somados entre períodos sobrepostos; a tabela de movimento/hidráulica/elevação mostra o intervalo explícito da extração mais recente.
+
+## Preservação do dashboard original
+
+As nove abas foram inspecionadas: duas visíveis (DashBoard Individual e Visão Geral) e sete ocultas (Main Page, Impactos, Relatório KPI de força de traba, Planilha1, Base dados, Auxiliar Oficial e Auxiliar Visual).
+
+| Informação anterior | Tratamento no Pulso |
+| --- | --- |
+| Horas de chave, presença, trabalho, movimento, hidráulica, elevação, descida e ociosidade | Preservadas como contadores históricos; contadores disponíveis da extração atual aparecem também na operação |
+| Partidas/usos, distância, frente/ré e alta velocidade | Preservados no histórico; aguardam extração atual de Workforce KPI para visão contemporânea por cartão |
+| Uso efetivo, utilização, km/h, hidráulica parada/em movimento, abertura/fechamento e ociosidade dentro/fora | Valores calculados em cache preservados por linha; sem esconder erros ou alterar silenciosamente a fórmula |
+| Visão geral | Razões recalculadas pelas somas; não usa média simples de percentuais para representar a frota |
+| Impactos e grupo do Auxiliar Oficial | Valores estáticos preservados e identificados; não confundidos com o livro de eventos |
+| Combustível do Auxiliar Visual | Valor manual em kg preservado separadamente, sem conversão para L nem integração ao consumo atual |
+| Cartões truncados ou repetidos | Não completar códigos; linha identificada como incompleta ou ambígua; não agregar como identidade individual confirmada |
+
+O cabeçalho Main Page refere-se a setembro/2022; o relatório KPI refere-se a agosto/2023. Impactos contém eventos de 2022. A localidade também diverge entre metadados e identificação usual do arquivo. Por isso, essa base fica como arquivo histórico separado, sem ser unida automaticamente à série atual, nem usada como baseline de 2026.
+
+## Semântica e qualidade
+
+- Diário: datas MM/DD/YYYY na origem, equipamento herdado do bloco; dias ausentes desconhecidos. Razões pela soma de horas. Trabalho/chave não mede produtividade física.
+- Eventos: tipo, cartão e referência de linha; crítico na origem não determina prioridade. Cartão associado não comprova responsabilidade. Não atribuir horas diárias do equipamento ao cartão do evento.
+- Não assumir trabalho + ociosidade = chave nem somar movimento e hidráulica como tempos exclusivos. Os contadores podem se sobrepor.
+- KPI agregado: médias mensais não são uma série mensal. Horímetro de serviço é diferente do tempo de chave.
+- Status/cadastro: snapshot separado do histórico. Ativo agora não prova disponibilidade anterior.
+- Combustível zerado, custos ausentes e manutenção sem registros não comprovam consumo zero, custo zero ou manutenção em dia.
+- Baseline exploratório: mesmo equipamento, 28 dias anteriores, mínimo de dez registros com chave ≥ 1 h; média e desvio amostral da razão diária; sinal com z ≥ 2 e aumento ≥ 10 pontos percentuais. A data avaliada e o futuro nunca entram na referência; variância zero não gera z artificial.
+- A visão real não usa o Isolation Forest/LLM da demo nem inventa probabilidade de pane ou economia. As explicações são determinísticas e rastreáveis.
+
+## Dados pessoais e publicação
+
+O usuário autorizou conservar o código do cartão. O conversor mantém esse código como string e exclui nomes, sobrenomes, seriais, IDs de produto e localidade em texto dos registros atuais. O código é um identificador operacional e permanece no arquivo privado e no navegador. Nunca commitar a base real, XLSX ou backups no repositório público. Hashes, linha e arquivo mantêm rastreabilidade; campos livres são preenchidos pelo usuário.
 
 ## Verificação
 
-`npm run test:hyster`, `npm run lint` e `npm run build`. Testes cobrem ponderação correta, dados ausentes, duplicidade, separação de eventos de status e ausência de vazamento temporal. O importador é específico ao layout observado: mudanças de exportação devem falhar e ser revisadas, nunca inferidas silenciosamente.
+`npm run test:hyster`, `npm run lint`, `npm run build`. Testes verificam cartões, importação idempotente, sobreposição, separação de operações, unidades, ausência de medições, ordens, integridade do backup e janelas de acompanhamento. O conversor falha quando o layout Hyster difere dos cabeçalhos esperados.

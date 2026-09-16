@@ -150,7 +150,7 @@ export default function Home() {
           <div className="eyebrow">TECH4CHANGE 2026 · GRUPO 26</div>
           <h1>Pulso <span>Operacional AI</span></h1>
           <p>A máquina gera dados. A IA encontra o padrão. O ser humano decide.</p>
-          <p><a href="/hyster">Abrir análise de dados reais · Hyster Tracker →</a></p>
+          <p><a href="/hyster">Abrir gestão da operação · Hyster Tracker →</a></p>
         </div>
         <div className="heroActions">
           <div className="live"><span /> z-score + Isolation Forest</div>
