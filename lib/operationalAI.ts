@@ -1,9 +1,9 @@
-import type { HysterData } from "@/lib/hyster";
+import type { HysterData } from "./hyster.ts";
 import {
   DEFAULT_ISOLATION_SUBSAMPLE,
   DEFAULT_ISOLATION_TREES,
   scoreIsolationForest
-} from "@/lib/isolationForestCore";
+} from "./isolationForestCore.ts";
 
 export type OperationalInsightCategory = "efficiency" | "reliability" | "safety" | "multivariate";
 export type OperationalPriority = "attention" | "high";
