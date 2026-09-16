@@ -83,6 +83,10 @@ const round = (value: number, digits = 2) => {
 const ratio = (numerator: number | undefined, denominator: number | undefined) =>
   numerator != null && denominator != null && denominator > 0 ? round(numerator / denominator * 100) : null;
 
+const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value);
+const optionalFinite = (value: unknown) => value === null || finite(value);
+const validDate = (value: unknown) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value));
+
 function mergeMetrics(rows: WorkforceMetrics[]) {
   const merged: WorkforceMetrics = {};
   const keys = new Set(rows.flatMap((row) => Object.keys(row)));
@@ -179,7 +183,7 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
   ];
   if (aggregate) limitations.push(aggregate.caveat);
   else limitations.push("Não há indicadores agregados de hidráulica, movimento, elevação ou marcha para este equipamento.");
-  if (!management.sameDayInput?.production) limitations.push("Demanda/produção do dia não está disponível; baixa atividade pode refletir menor demanda e não pode ser classificada automaticamente como perda de produtividade.");
+  if (management.sameDayInput?.production == null) limitations.push("Demanda/produção do dia não está disponível; baixa atividade pode refletir menor demanda e não pode ser classificada automaticamente como perda de produtividade.");
   if (!data.maintenanceAvailable) limitations.push("A origem não contém manutenção detalhada suficiente para confirmar diagnóstico técnico.");
 
   return {
@@ -209,4 +213,39 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
     },
     limitations
   };
+}
+
+export function validateOperationalContext(value: unknown): OperationalContext {
+  if (!value || typeof value !== "object") throw new Error("Contexto operacional inválido.");
+  const context = value as Record<string, unknown>;
+  if (context.schemaVersion !== "pulso-operational-context-v1" || !/^EP\d{2,6}$/.test(String(context.assetId)) || !validDate(context.date)) throw new Error("Identidade do contexto operacional inválida.");
+
+  const daily = context.daily as Record<string, unknown> | undefined;
+  if (!daily || daily.granularity !== "asset-day" || ![daily.keyHours, daily.presenceHours, daily.workHours, daily.idleHours, daily.waitHours].every(finite) || ![daily.workPct, daily.idlePct, daily.waitPct].every(optionalFinite)) throw new Error("Contexto diário inválido.");
+
+  if (context.aggregateTelemetry !== undefined) {
+    const aggregate = context.aggregateTelemetry as Record<string, unknown>;
+    const ratios = aggregate.ratios as Record<string, unknown> | undefined;
+    if (aggregate.granularity !== "asset-period" || !validDate(aggregate.periodStart) || !validDate(aggregate.periodEnd) || String(aggregate.periodStart) > String(aggregate.periodEnd) || !Number.isInteger(aggregate.usageCount) || !Number.isInteger(aggregate.coverageSlices) || !aggregate.metrics || typeof aggregate.metrics !== "object" || !ratios || !Object.values(ratios).every(optionalFinite) || typeof aggregate.caveat !== "string") throw new Error("Contexto agregado inválido.");
+  }
+
+  const events = context.events as Record<string, unknown> | undefined;
+  if (!events || ![events.faults, events.impacts, events.total].every((item) => Number.isInteger(item) && Number(item) >= 0) || !Array.isArray(events.byType) || events.byType.length > 20 || events.byType.some((item) => !item || typeof item !== "object" || typeof (item as Record<string, unknown>).type !== "string" || !Number.isInteger((item as Record<string, unknown>).count))) throw new Error("Contexto de eventos inválido.");
+
+  const management = context.management as Record<string, unknown> | undefined;
+  if (!management || management.granularity !== "workspace-current" || ![management.openOrders, management.inProgressOrders, management.completedOrders].every((item) => Number.isInteger(item) && Number(item) >= 0) || !(management.latestCompletedAt === null || validDate(management.latestCompletedAt))) throw new Error("Contexto de gestão inválido.");
+  if (management.sameDayInput !== undefined) {
+    const input = management.sameDayInput as Record<string, unknown>;
+    if (![input.plannedHours, input.downtimeHours, input.fuelQuantity, input.costBRL, input.production].every(optionalFinite) || !["L", "kg"].includes(String(input.fuelUnit)) || !["t", "movimentos"].includes(String(input.productionUnit))) throw new Error("Apontamento de contexto inválido.");
+  }
+
+  const availability = context.availability as Record<string, unknown> | undefined;
+  if (!availability || ![availability.demandOrProduction, availability.plannedHours, availability.downtime, availability.maintenanceDetail, availability.aggregateTelemetry].every((item) => typeof item === "boolean")) throw new Error("Disponibilidade do contexto inválida.");
+  if (!Array.isArray(context.limitations) || context.limitations.length > 12 || context.limitations.some((item) => typeof item !== "string" || item.length > 500)) throw new Error("Limitações do contexto inválidas.");
+
+  // Defense in depth: the model context must never contain operator/card identity fields.
+  const serialized = JSON.stringify(value).toLowerCase();
+  if (serialized.includes('"cardcode"') || serialized.includes('"operator"') || serialized.includes('"operatorname"')) throw new Error("Identidade individual não pode integrar o contexto de IA.");
+
+  return value as OperationalContext;
 }
