@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { HysterData } from "../lib/hyster.ts";
 import { analyzeOperationalAI, operationalExplanationPacket } from "../lib/operationalAI.ts";
+import { buildOperationalContext, validateOperationalContext } from "../lib/operationalContext.ts";
 import { deterministicOperationalExplanation, validateOperationalExplanationPacket } from "../lib/operationalExplanation.ts";
 import { scoreIsolationForest } from "../lib/isolationForestCore.ts";
 
@@ -21,6 +22,20 @@ function fixture(): HysterData {
     sourceRow: index + 2
   }));
   daily.push({ assetId: "EP01", date: "2026-06-21", keyHours: 8, presenceHours: 8, workHours: 3, idleHours: 4, waitHours: 3, sourceRow: 22 });
+
+  const workforceMetrics = {
+    keyHours: 100,
+    workHours: 72,
+    idleHours: 20,
+    motionHours: 60,
+    hydraulicHours: 40,
+    liftHours: 12,
+    lowerHours: 10,
+    highSpeedHours: 5,
+    forwardHours: 35,
+    reverseHours: 25,
+    distanceKm: 999
+  };
 
   return {
     schemaVersion: 3,
@@ -47,7 +62,7 @@ function fixture(): HysterData {
       unitSystem: "metric",
       sourceFile: "workforce.xlsx",
       sha256: "b".repeat(64),
-      cards: [{ cardCode: "000845", cardQuality: "complete", usageCount: 1, metrics: { distanceKm: 999, idleHours: 500 }, assets: [{ assetId: "EP01", usageCount: 1, metrics: { distanceKm: 999, idleHours: 500 }, sourceRow: 4 }], sourceRow: 3 }],
+      cards: [{ cardCode: "000845", cardQuality: "complete", usageCount: 1, metrics: workforceMetrics, assets: [{ assetId: "EP01", usageCount: 1, metrics: workforceMetrics, sourceRow: 4 }], sourceRow: 3 }],
       warnings: []
     }
   };
@@ -77,12 +92,57 @@ test("real Pulso data flows through baseline, z-score and Isolation Forest", () 
   assert.ok(!result.features.includes("distanceKm" as never));
 });
 
-test("real explanation packet excludes card identity and stays evidence-bound", () => {
-  const insight = analyzeOperationalAI(fixture()).insights[0];
+test("Operational Context Engine adds scoped telemetry without operator identity", () => {
+  const data = fixture();
+  const insight = analyzeOperationalAI(data).insights.find((item) => item.date === "2026-06-21");
   assert.ok(insight);
-  const packet = operationalExplanationPacket(insight);
+  const context = buildOperationalContext({ data, insight });
+  const validated = validateOperationalContext(context);
+  assert.equal(validated.daily.granularity, "asset-day");
+  assert.equal(validated.daily.workPct, 37.5);
+  assert.equal(validated.events.impacts, 1);
+  assert.equal(validated.events.faults, 6);
+  assert.equal(validated.aggregateTelemetry?.granularity, "asset-period");
+  assert.equal(validated.aggregateTelemetry?.ratios.hydraulicPct, 40);
+  assert.equal(validated.aggregateTelemetry?.ratios.motionPct, 60);
+  assert.equal(validated.aggregateTelemetry?.ratios.marchPct, 60);
+  assert.equal(validated.aggregateTelemetry?.ratios.forwardSharePct, 58.33);
+  assert.equal(validated.availability.demandOrProduction, false);
+  const serialized = JSON.stringify(validated);
+  assert.equal(serialized.includes("000845"), false);
+  assert.equal(serialized.toLowerCase().includes("cardcode"), false);
+  assert.match(validated.limitations.join(" "), /não.*produtividade|demanda\/produção/i);
+});
+
+test("Operational Context Engine can include structured human inputs without free-text notes", () => {
+  const data = fixture();
+  const insight = analyzeOperationalAI(data).insights.find((item) => item.date === "2026-06-21");
+  assert.ok(insight);
+  const context = buildOperationalContext({
+    data,
+    insight,
+    inputs: [{ id: "input-1", assetId: "EP01", date: "2026-06-21", plannedHours: 8, downtimeHours: 1, fuelQuantity: 12, fuelUnit: "L", costBRL: 150, production: 42, productionUnit: "movimentos", note: "texto livre que não deve sair" }],
+    orders: [{ id: "order-1", assetId: "EP01", title: "Inspeção", kind: "operational", priority: "high", team: "Operação", dueDate: "2026-06-25", status: "open", openedAt: "2026-06-21T12:00:00.000Z", completedAt: null, note: "nota privada", history: [] }]
+  });
+  assert.equal(context.availability.demandOrProduction, true);
+  assert.equal(context.management.sameDayInput?.production, 42);
+  assert.equal(context.management.openOrders, 1);
+  const serialized = JSON.stringify(context);
+  assert.equal(serialized.includes("texto livre"), false);
+  assert.equal(serialized.includes("nota privada"), false);
+  assert.equal(serialized.includes("Inspeção"), false);
+});
+
+test("real explanation packet excludes card identity and stays evidence-bound", () => {
+  const data = fixture();
+  const insight = analyzeOperationalAI(data).insights[0];
+  assert.ok(insight);
+  const context = buildOperationalContext({ data, insight });
+  const packet = { ...operationalExplanationPacket(insight), context };
   assert.equal("relatedCardCodes" in packet, false);
+  assert.equal(JSON.stringify(packet).includes("000845"), false);
   const validated = validateOperationalExplanationPacket(packet);
   const explanation = deterministicOperationalExplanation(validated);
   assert.match(explanation.uncertainty, /não prova|não comprova|Não prova/i);
+  assert.match(explanation.explanation, /hidráulica|movimento|marcha/i);
 });
