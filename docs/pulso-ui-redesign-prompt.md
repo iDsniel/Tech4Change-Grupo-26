@@ -1,20 +1,31 @@
 # Prompt de execução — redesign do Pulso
 
-Use este prompt para aplicar a nova arquitetura visual/UX sem recriar funcionalidades já existentes.
+Continue o desenvolvimento do **Pulso — Copiloto Operacional AI** no repositório `iDsniel/Tech4Change-Grupo-26`, partindo da `main` atual.
 
----
+Leia primeiro `DESIGN.md`, `docs/DECISION-2026-current-data-only.md`, `docs/pulso-base-unificada.md`, `docs/hyster-real-data.md`, `docs/workforce-kpi.md` e os testes existentes.
 
-Continue o desenvolvimento do **Pulso — Copiloto Operacional AI** no repositório `iDsniel/Tech4Change-Grupo-26`, partindo da `main` atual após os PRs **#12, #13 e #14**.
+## Decisão de produto obrigatória
 
-Leia primeiro `DESIGN.md`, `README.md`, `docs/hyster-real-data.md`, `docs/workforce-kpi.md` e os testes existentes.
+O dashboard de 2023 foi usado apenas como referência de descoberta para entender quais indicadores a operação acompanhava.
+
+**Ele não faz parte do Pulso.**
+
+Portanto:
+
+- não exiba Dashboard 2023;
+- não crie seção de referência histórica;
+- não preserve dados de 2023 no workspace;
+- não importe dados de 2023;
+- não inclua `legacy`, `historical2023` ou equivalente no contrato/JSON operacional;
+- não use 2023 como baseline, comparação ou fonte do produto.
+
+Para a amostra atual do Tech4Change, o pacote operacional contém somente dados de **01/06/2026 a 31/08/2026**.
 
 ## Objetivo
 
-Refazer somente a **experiência visual, arquitetura de informação e navegação** da visão real Hyster/Workforce para que o Pulso pareça um produto de gestão operacional moderno, claro e acionável.
+Refazer somente a **experiência visual, arquitetura de informação e navegação** da operação atual para que o Pulso pareça um produto de gestão operacional moderno, claro e acionável.
 
-O problema atual não é falta de dados nem falta de funcionalidades. O problema é que a página está escura, densa, técnica demais e organizada por módulos internos do sistema, dificultando a leitura executiva e a tomada de decisão.
-
-Não reinicie o projeto e não recrie fluxos já implementados.
+Não reinicie o projeto e não recrie funcionalidades já implementadas.
 
 ## Regra principal
 
@@ -31,32 +42,51 @@ A interface deve responder, nesta ordem:
 
 ## Preserve integralmente
 
-Preserve contratos, cálculos, validações e comportamento existentes, incluindo:
+Preserve contratos, cálculos, validações e comportamento existentes da operação atual, incluindo:
 
-- importação do JSON Hyster/Workforce;
+- uma única importação JSON operacional;
 - `schemaVersion: 3`;
+- telemetria e série diária por equipamento;
+- indicadores agregados por cartão;
+- eventos;
 - códigos completos dos cartões como string;
-- exclusão dos nomes dos operadores;
-- indicadores Workforce;
-- histórico diário por equipamento;
-- eventos Hyster;
-- baseline e regras de desvio existentes;
+- exclusão de nomes dos operadores;
+- baseline e regras de desvio;
 - ordens e histórico das ordens;
 - acompanhamento antes/depois;
 - IndexedDB;
 - backup/restauração;
 - reimportação idempotente;
-- separação entre histórico 2023, operação 2026 e demo sintética;
 - guardrails de causalidade e responsabilidade individual;
+- separação entre operação real e demo sintética;
 - testes existentes.
 
 Não faça migração para backend autenticado nesta etapa.
 
-Não altere fórmulas ou domínio apenas para facilitar o redesign.
+## Uma única base operacional
+
+Não apresente Hyster e Workforce como dois produtos, duas bases ou duas importações.
+
+A experiência do usuário deve ser:
+
+`1 JSON operacional → Pulso → todos os insights`
+
+O pacote reúne, quando disponíveis:
+
+- cadastro de ativos;
+- utilização diária;
+- indicadores por cartão;
+- eventos;
+- KPI consolidado;
+- status;
+- combustível;
+- custos;
+- manutenção;
+- rastreabilidade das fontes.
+
+O nome interno `workforce` pode permanecer temporariamente no schema por compatibilidade técnica, mas a UI deve falar em **indicadores por cartão**.
 
 ## Nova navegação principal
-
-Substitua a navegação atual por:
 
 1. **Resumo**
 2. **Frota**
@@ -65,23 +95,7 @@ Substitua a navegação atual por:
 5. **Ordens**
 6. **Base**
 
-### Remova da navegação principal
-
-- `Dashboard 2023`
-- importação JSON
-- exportação de backup
-- restauração
-- `Apontamentos` como aba independente, salvo se algum fluxo existente depender tecnicamente disso
-
-O Dashboard 2023 não é um produto atual. Ele foi fornecido apenas como referência de como a operação visualizava os dados anteriormente.
-
-Mantenha os dados históricos de 2023 preservados e acessíveis somente em:
-
-`Base > Referência histórica`
-
-ou em uma seção colapsável equivalente.
-
-Não apague o importador nem os dados históricos.
+Não criar item, página, card ou submenu para 2023.
 
 ## Tema visual
 
@@ -89,110 +103,60 @@ Implemente o tema claro definido em `DESIGN.md` como padrão.
 
 Direção:
 
-- fundo geral `#F7F8FA`;
+- fundo `#F7F8FA`;
 - cards brancos;
 - bordas sutis;
 - texto escuro;
 - teal como identidade do Pulso;
 - verde/âmbar/laranja/vermelho apenas para estado operacional;
 - bastante espaço em branco;
-- menos caixas competindo visualmente;
 - sem glow, neon ou glassmorphism generalizado.
 
-A UI deve lembrar um produto corporativo de operação/analytics moderno, não um terminal, ferramenta de desenvolvedor ou dashboard gamer.
-
-Use os princípios do Carbon Design System para hierarquia, acessibilidade, tabelas, filtros, estados e visualização de dados. Use `DESIGN.md` como contrato local de estilo.
-
-Não copie assets, logos, fontes ou identidade proprietária de terceiros.
+Use princípios do Carbon Design System para hierarquia, acessibilidade, tabelas, filtros, estados e visualização de dados.
 
 ## Cabeçalho
 
-Reduza o hero atual.
-
 Criar cabeçalho compacto com:
 
-- `Pulso`
-- `Copiloto Operacional AI`
-- período ativo
-- quantidade de equipamentos
-- fonte de dados ativa quando útil
-- acesso discreto à área `Base`
+- `Pulso`;
+- `Copiloto Operacional AI`;
+- período ativo;
+- quantidade de equipamentos;
+- acesso discreto à área `Base`.
 
 Remover da primeira dobra:
 
-- explicações de persistência;
 - importação;
 - backup;
 - restauração;
-- link chamativo para demo sintética.
-
-A demo sintética pode permanecer acessível por link secundário fora do fluxo principal.
+- explicações longas de persistência;
+- links chamativos da demo sintética.
 
 ## Página Resumo
 
-Criar uma visão executiva real.
+Exibir 4–6 KPIs prioritários, sem inventar metas ou benchmarks:
 
-### Primeira linha
+- chave ligada;
+- trabalho registrado;
+- ociosidade/chave;
+- desvios ativos;
+- ordens abertas;
+- ordens vencidas, quando houver.
 
-Exibir 4–6 KPIs prioritários:
+Criar bloco **Prioridades agora** com no máximo 3–5 itens, contendo:
 
-- Chave ligada
-- Trabalho registrado
-- Ociosidade/chave
-- Desvios ativos
-- Ordens abertas
-- Ordens vencidas, se houver
-
-Não invente benchmark, meta ou tendência.
-
-Se não existir dado suficiente para comparação, não exiba variação.
-
-### Prioridades agora
-
-Criar um bloco imediatamente abaixo dos KPIs com no máximo 3–5 prioridades.
-
-Cada prioridade deve mostrar:
-
-- ativo;
+- ativo/cartão relacionado;
 - data/período;
-- métrica que desviou;
+- evidência principal;
 - valor atual;
-- baseline ou referência válida;
+- baseline válido quando houver;
 - CTA `Investigar` ou `Abrir ordem`.
 
-### Evolução
-
-Substituir a apresentação atual por visualização temporal mais clara.
-
-Preferir linha ou barras para:
-
-- chave ligada por mês;
-- ociosidade/chave por mês;
-- eventos quando fizer sentido.
-
-Não gerar séries mensais para Workforce, pois o arquivo Workforce atual é agregado para o período jun–ago/2026.
-
-### Ordens
-
-Adicionar resumo executivo das ordens:
-
-- abertas;
-- em andamento;
-- vencidas;
-- concluídas recentemente;
-- aguardando acompanhamento.
-
-### Qualidade da base
-
-Mostrar apenas um resumo compacto na home.
-
-Detalhes completos ficam em `Base`.
+Criar evolução mensal apenas com dados que realmente têm granularidade mensal/diária. **Não distribua totais agregados por cartão artificialmente por mês ou dia.**
 
 ## Página Frota
 
-Criar visão comparativa da frota.
-
-Tabela principal com:
+Tabela principal:
 
 - equipamento;
 - chave;
@@ -204,55 +168,41 @@ Tabela principal com:
 - ordens abertas;
 - estado de atenção quando sustentado por regra existente.
 
-Adicionar barras inline ou sparklines apenas se ajudarem leitura.
-
-Ao selecionar um equipamento, mostrar detalhe com:
+No detalhe do equipamento:
 
 - KPIs;
-- evolução mensal;
+- evolução;
 - desvios;
 - eventos;
 - ordens;
 - acompanhamento antes/depois;
 - cartões relacionados quando houver vínculo explícito.
 
-Não tratar ordenação da tabela como ranking humano.
-
 ## Página Desvios
-
-Transformar o bloco atual `Desvios para investigar` + `Copiloto · evidência e próxima ação` em uma experiência principal.
 
 Desktop:
 
 - lista de desvios à esquerda;
 - investigação detalhada à direita.
 
-O painel detalhado deve ter quatro blocos visuais:
+Detalhe em quatro blocos:
 
 1. **O que aconteceu**
 2. **Evidências**
 3. **O que validar**
 4. **Próxima ação**
 
-Mostrar origem e regra estatística sem enterrar tudo em parágrafo corrido.
-
 Manter explicitamente:
 
 - desvio não identifica causa;
-- não atribui responsabilidade;
-- não é previsão calibrada de pane.
+- associação não atribui responsabilidade;
+- sinal não é previsão calibrada de pane.
 
 ## Página Cartões
 
-Usar o bloco Workforce já integrado.
+Criar busca/lista/detalhe por código.
 
-Criar:
-
-- busca por código;
-- lista resumida;
-- painel/drawer de detalhe.
-
-No detalhe mostrar somente indicadores disponíveis:
+Mostrar somente indicadores disponíveis:
 
 - usos;
 - distância;
@@ -271,7 +221,7 @@ No detalhe mostrar somente indicadores disponíveis:
 - eventos relacionados;
 - qualidade do código.
 
-Preservar zeros à esquerda.
+Preservar zeros à esquerda quando existirem na origem.
 
 Nunca exibir nome do operador.
 
@@ -279,11 +229,7 @@ Mostrar aviso discreto:
 
 `A associação do cartão com equipamento ou evento não comprova responsabilidade individual.`
 
-Não inventar série mensal a partir do total trimestral Workforce.
-
 ## Página Ordens
-
-Consolidar a gestão existente em uma página mais clara.
 
 Topo:
 
@@ -292,19 +238,7 @@ Topo:
 - vencidas;
 - concluídas.
 
-Corpo:
-
-- ativo;
-- título;
-- tipo;
-- prioridade;
-- equipe;
-- prazo;
-- status;
-- origem/contexto;
-- acompanhamento pós-ação.
-
-No pós-ação, destacar claramente:
+No pós-ação destacar:
 
 - antes;
 - depois;
@@ -314,12 +248,9 @@ No pós-ação, destacar claramente:
 
 ## Página Base
 
-Mover para cá tudo que hoje ocupa a primeira dobra mas é administrativo.
-
-Criar seções:
+Concentrar funções administrativas:
 
 ### Dados carregados
-
 - período;
 - ativos;
 - fontes;
@@ -327,179 +258,95 @@ Criar seções:
 - cobertura.
 
 ### Importação
-
-- importar JSON;
+- um único controle `Importar base operacional JSON`;
 - mensagens de validação;
-- comportamento de substituição de períodos.
+- substituição segura de períodos repetidos.
 
 ### Backup local
-
 - exportar;
 - restaurar;
 - aviso de persistência local.
 
-### Qualidade dos dados
-
+### Qualidade
 - campos ausentes;
 - dias ausentes;
 - combustível zerado;
 - custos ausentes;
 - manutenção indisponível;
 - códigos incompletos/ambíguos;
-- demais inconsistências já detectadas.
-
-### Referência histórica 2023
-
-Mover para cá a visão antiga atualmente exposta em `Dashboard 2023`.
-
-Identificar claramente:
-
-`Referência histórica de agosto/2023 — preservada para comparação de cobertura de informação, não para comparação direta de desempenho.`
+- inconsistências existentes.
 
 ### Persistência compartilhada
-
-Apenas documentar:
-
-- backend autenticado;
-- banco central;
-- autorização por operação;
-- multiusuário;
-- auditoria;
-- backup central.
-
-Não implementar.
+Apenas documentar backend autenticado/multiusuário. Não implementar agora.
 
 ## Apontamentos
 
-Preserve toda a funcionalidade existente de apontamentos.
-
-Em vez de mantê-la obrigatoriamente como aba principal, integre-a onde fizer mais sentido:
-
-- `Base`, se for administração de dado manual;
-- `Frota > detalhe do equipamento`, se for contexto operacional;
-- `Ordens`, se o apontamento estiver diretamente ligado à execução.
-
-Não remova dados ou capacidade de edição.
+Preserve toda a funcionalidade existente. Reposicione onde fizer mais sentido para gestão, sem perder dados nem edição.
 
 ## Visualização de dados
 
 Preferir:
 
-- barras horizontais para comparação;
-- linhas para evolução temporal;
-- sparklines para tendência compacta;
-- tabelas para precisão;
-- badges para status.
+- barras horizontais;
+- linhas;
+- sparklines;
+- tabelas;
+- badges semânticos.
 
 Evitar:
 
 - pizza/donut sem necessidade;
-- gauge decorativo;
+- gauges decorativos;
 - radar;
 - 3D;
 - excesso de gradiente;
-- barras `<meter>` com aparência nativa sem refinamento visual.
+- barras nativas pouco refinadas.
 
-## Tabelas
+## Regras de dados
 
-Melhorar leitura com:
+Não:
 
-- header sticky quando aplicável;
-- números alinhados à direita;
-- divisores leves;
-- hover discreto;
-- ordenação clara;
-- busca/filtro;
-- espaço suficiente entre linhas;
-- ação contextual no fim da linha.
+- inventar indicador;
+- inventar economia;
+- inventar diagnóstico;
+- inventar causalidade;
+- preencher ausência com zero;
+- ratear total agregado por cartão;
+- misturar dados sintéticos e reais;
+- importar ou mostrar dados de 2023.
 
-## Responsividade
+## Qualidade
 
-Validar pelo menos:
+Antes de concluir:
 
-- 1366×768;
-- 1440×900;
-- mobile ~390px.
+1. execute `npm install`;
+2. execute `npm run test:hyster`;
+3. execute `npm run lint`;
+4. execute `npm run build`;
+5. valide a importação do JSON único;
+6. valide os indicadores por cartão;
+7. valide códigos como string e sem nomes;
+8. valide persistência e backup;
+9. confirme que não existe qualquer referência de 2023 na UI;
+10. confirme que o pacote operacional não contém `legacy`;
+11. valide responsividade desktop;
+12. valide CI.
 
-Não usar hover como único modo de interação.
+## Critério de aceite
 
-## Acessibilidade
+A entrega está pronta quando um gestor consegue abrir o Pulso e, em menos de 30 segundos:
 
-Preserve ou melhore:
+- entender como está a operação;
+- identificar onde existe atenção;
+- selecionar um desvio;
+- compreender a evidência;
+- registrar uma ação;
+- navegar para equipamento/cartão relacionado;
+- encontrar as ordens;
+- acessar administração da base sem ela poluir a home.
 
-- foco visível;
-- navegação por teclado;
-- labels;
-- contraste AA;
-- headings semânticos;
-- tabelas semânticas;
-- `aria` quando necessário;
-- `prefers-reduced-motion`.
+O produto deve trabalhar exclusivamente com a operação atual importada. O dashboard usado como referência de descoberta em 2023 não faz parte do produto.
 
-## Não fazer
+## Git
 
-- não recriar importadores;
-- não trocar IndexedDB nesta etapa;
-- não iniciar backend;
-- não alterar o contrato Workforce sem necessidade;
-- não alterar cálculos para facilitar UI;
-- não misturar demo sintética com operação real;
-- não remover dados históricos;
-- não criar ranking de operadores;
-- não atribuir responsabilidade a cartão;
-- não inventar economia;
-- não inventar diagnóstico;
-- não distribuir total Workforce trimestral por mês/dia;
-- não adicionar um framework grande apenas por estética;
-- não reconstruir componentes que podem ser reaproveitados/refatorados.
-
-## Estratégia de implementação
-
-1. Faça inventário dos componentes atuais e marque `reutilizar`, `refatorar` ou `mover`.
-2. Não altere domínio no primeiro passo.
-3. Reestruture navegação e layout.
-4. Aplique tokens do `DESIGN.md`.
-5. Reaproveite dados existentes para os novos blocos.
-6. Só crie componente novo quando não houver equivalente razoável.
-7. Corrija regressões visuais e de acessibilidade.
-8. Atualize documentação se a navegação mudar.
-9. Execute todos os testes.
-10. Faça PR com screenshots antes/depois, se o ambiente permitir.
-
-## Critérios de aceite
-
-A entrega só está pronta quando:
-
-- o gestor entende o estado da operação em menos de 10 segundos;
-- a home mostra prioridades antes de detalhes técnicos;
-- importação/backup não ocupam a primeira dobra;
-- Dashboard 2023 não aparece na navegação principal;
-- existe fluxo claro `desvio → evidência → ação → acompanhamento`;
-- visão por cartão usa Workforce sem inventar granularidade;
-- não há nomes de operadores;
-- dados reais continuam fora do GitHub público;
-- persistência continua local;
-- `npm run test:hyster` passa;
-- `npm run lint` passa;
-- `npm run build` passa;
-- CI fica verde.
-
-## Entrega no GitHub
-
-Crie uma branch de feature a partir da `main` atual.
-
-Implemente o redesign.
-
-Abra um PR para `main` descrevendo:
-
-- arquitetura de informação anterior × nova;
-- componentes reaproveitados;
-- componentes movidos;
-- alterações visuais;
-- preservação das regras de dados;
-- testes executados;
-- limitações restantes.
-
-Não faça merge antes do CI ficar completamente aprovado.
-
-Após CI verde, incorpore à `main`.
+Crie branch específica a partir da `main`, implemente o redesign, execute testes/build, abra PR e incorpore à `main` somente após CI verde.
