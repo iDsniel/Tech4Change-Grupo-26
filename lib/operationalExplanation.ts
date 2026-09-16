@@ -45,13 +45,36 @@ export function validateOperationalExplanationPacket(value: unknown): Operationa
   return value as OperationalExplanationPacket;
 }
 
+function plainFacts(insight: OperationalAIInsight | OperationalExplanationPacket) {
+  const facts: string[] = [];
+  const idle = insight.evidence.find((item) => item.metric === "idlePct" && item.zScore > 0);
+  const wait = insight.evidence.find((item) => item.metric === "waitPct" && item.zScore > 0);
+  const work = insight.evidence.find((item) => item.metric === "workPct" && item.zScore < 0);
+  const faults = insight.relatedEvents.faults;
+  const impacts = insight.relatedEvents.impacts;
+  if (idle) facts.push(`ociosidade em ${idle.current}% contra ${idle.mean}% no histórico comparável`);
+  if (wait) facts.push(`espera em ${wait.current}% contra ${wait.mean}% no histórico comparável`);
+  if (work) facts.push(`trabalho em ${work.current}% contra ${work.mean}% no histórico comparável`);
+  if (impacts) facts.push(`${impacts} impacto(s) registrado(s)`);
+  if (faults) facts.push(`${faults} registro(s) de falha`);
+  return facts;
+}
+
 export function deterministicOperationalExplanation(insight: OperationalAIInsight | OperationalExplanationPacket): OperationalExplanation {
-  const evidence = insight.evidence.map((item) => `${item.label} ${item.current} ${item.unit} vs. referência ${item.mean} (${item.zScore >= 0 ? "+" : ""}${item.zScore}σ)`).join("; ");
+  const facts = plainFacts(insight);
+  const explanation = facts.length
+    ? `Neste contexto, ${facts.join("; ")}. O Pulso destacou a situação porque ela se afastou do comportamento habitual do próprio equipamento.`
+    : "O Pulso encontrou uma combinação de sinais diferente do comportamento habitual deste equipamento e separou o contexto para revisão.";
+
+  let whyItMatters = "Essa diferença pode ajudar a encontrar mais rápido onde vale investigar antes de decidir uma ação.";
+  if (insight.category === "safety") whyItMatters = "Impactos precisam ser contextualizados com rota, piso, carga e condição do equipamento antes de qualquer conclusão.";
+  if (insight.category === "reliability") whyItMatters = "Falhas concentradas podem afetar disponibilidade e merecem confronto com inspeção e histórico de manutenção.";
+
   return {
-    headline: insight.title,
-    explanation: evidence ? `${insight.summary} Evidências: ${evidence}. ${insight.multivariate.explanation}` : `${insight.summary} ${insight.multivariate.explanation}`,
-    whyItMatters: `O Pulso priorizou este contexto para investigação e recomenda: ${insight.recommendation}`,
-    uncertainty: insight.uncertainty
+    headline: insight.category === "safety" ? "Impacto merece revisão" : insight.category === "reliability" ? "Falhas pedem verificação" : "Comportamento diferente do habitual",
+    explanation,
+    whyItMatters,
+    uncertainty: "Esta leitura é um indício para investigação e não comprova causa, falha futura ou responsabilidade individual."
   };
 }
 
@@ -73,7 +96,7 @@ export function parseOperationalGeneratedExplanation(raw: string): OperationalEx
     const uncertainty = clean(value.uncertainty, 700);
     if (!headline || !explanation || !whyItMatters || !uncertainty) return undefined;
     const normalized = uncertainty.toLowerCase();
-    if (!normalized.includes("hipótese") && !normalized.includes("não prova") && !normalized.includes("incerteza") && !normalized.includes("não comprova")) return undefined;
+    if (!normalized.includes("hipótese") && !normalized.includes("indício") && !normalized.includes("não prova") && !normalized.includes("incerteza") && !normalized.includes("não comprova")) return undefined;
     return { headline, explanation, whyItMatters, uncertainty };
   } catch {
     return undefined;
