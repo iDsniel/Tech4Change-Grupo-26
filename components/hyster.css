@@ -19,3 +19,25 @@
 .hyster summary { cursor: pointer; padding: 8px 0; }
 .hyster hr { border: 0; border-top: 1px solid #35414d; margin: 24px 0; }
 .hyster .insightList { max-height: 560px; overflow-y: auto; }
+.hyster .insightCard { display: block; min-width: 0; }
+.hyster .insightCard > div { width: 100%; min-width: 0; }
+.hyster .insightCard strong, .hyster .insightCard p { overflow-wrap: normal; word-break: normal; }
+.hyster .workspace { grid-template-columns: minmax(280px, .8fr) minmax(0, 1.5fr); }
+.hyster .detailGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hyster .detailCard { min-width: 0; }
+.opsTabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0; }
+.hyster button { padding: 10px 14px; border: 1px solid #485661; border-radius: 6px; background: #151b23; color: #f4f7fa; cursor: pointer; }
+.hyster button:disabled { opacity: .5; cursor: wait; }
+.hyster button.active, .hyster .opsAction { border-color: #7fe7d8; color: #7fe7d8; }
+.hyster input, .hyster textarea { background: #0d1117; border: 1px solid #485661; border-radius: 6px; color: #f4f7fa; padding: 10px; width: 100%; }
+.hyster input[type=file] { width: auto; }
+.hyster select { max-width: 100%; }
+.opsForm { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 20px 0; align-items: end; }
+.opsForm label { display: grid; gap: 8px; font-size: 14px; }
+.opsForm textarea { min-height: 80px; }
+.opsWide { grid-column: 1 / -1; }
+.opsOrder { padding: 20px 0; border-bottom: 1px solid #35414d; }
+.hyster [role=alert] { color: #ff9c6b; }
+.hyster .kpiCard strong { font-size: clamp(20px, 2.3vw, 32px); }
+@media (max-width: 900px) { .hyster .workspace, .hyster .detailGrid { grid-template-columns: 1fr; } .opsForm { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 550px) { .opsForm { grid-template-columns: 1fr; } .hyster .hero { flex-direction: column; } }

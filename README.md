@@ -1,6 +1,6 @@
-# Pulso — dados reais Hyster
+# Pulso — gestão da operação e manutenção
 
-A visão operacional real está em **[/hyster](http://localhost:3000/hyster)**. Importe a base JSON preparada a partir dos oito relatórios Hyster. Filtros por mês/equipamento, contadores ponderados, eventos tipados e sinais históricos explicáveis funcionam localmente no navegador. A tela inicial mantém a demonstração sintética e tem um link para essa visão.
+A gestão operacional está em **[/hyster](http://localhost:3000/hyster)**: operação, cartões e eventos, ordens de manutenção, apontamentos e dashboard histórico de 2023. Importe a base JSON v2 preparada. O histórico, ordens e apontamentos persistem neste navegador; exporte backup para transferir a outro computador. A tela inicial mantém a demonstração sintética e tem um link para a gestão real.
 
 Veja [importação, métricas e limitações](docs/hyster-real-data.md). Dados reais não são publicados neste repositório. A análise real não usa estimativas sintéticas de combustível, manutenção ou economia.
 

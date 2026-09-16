@@ -1,4 +1,4 @@
-"""Read Hyster XLSX exports; emit a whitelist-only, operator-free Pulso dataset.
+"""Read Hyster XLSX exports; emit whitelisted metrics and card codes, without names.
 
 Usage: python scripts/import_hyster.py /path/to/exports --output .data/hyster.json
 Requires openpyxl (read-only); original workbooks are never modified.
@@ -15,6 +15,14 @@ import openpyxl
 FILES = ["assetListing", "DailyFleetUtilization", "utilizationKPITier7",
          "AssetOperatingHistory", "currentFleetStatus", "PMTrackerDW",
          "fuelUsageSummaryequipment", "costOfOperationTier7"]
+
+
+def card_code(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)) and float(value).is_integer():
+        return str(int(value))
+    return str(value).strip()
 
 
 def convert(folder):
@@ -68,7 +76,7 @@ def convert(folder):
     events = []
     for row, r in enumerate(books["AssetOperatingHistory"][1][1:], 2):
         events.append(dict(assetId=ids[r[1]], date=r[8].date().isoformat(), time=r[9],
-                           type=r[17], sourceCritical=r[13] == "Sim", sourceStatus=r[16], sourceRow=row))
+                           type=r[17], cardCode=card_code(r[12]), sourceCritical=r[13] == "Sim", sourceStatus=r[16], sourceRow=row))
     status = [dict(assetId=ids[r[1]], status=r[6], lastAccess=r[9])
               for r in books["currentFleetStatus"][2][2:]]
     fuel = [dict(assetId=ids[r[3]], reportedLiters=r[10])
@@ -77,7 +85,8 @@ def convert(folder):
                   reportedCostPerHour=r[10], reportedTotal=r[11])
              for r in books["costOfOperationTier7"][1][2:]]
     dates = [r["date"] for r in daily]
-    return dict(schemaVersion=1, provider="Hyster Tracker", periodStart=min(dates), periodEnd=max(dates),
+    operation = str(books["assetListing"][1][1][0])
+    return dict(schemaVersion=2, operationId=hashlib.sha256(operation.encode()).hexdigest()[:16], provider="Hyster Tracker", periodStart=min(dates), periodEnd=max(dates),
                 granularity="asset-day", assets=sorted(assets, key=lambda x: x["assetId"]),
                 daily=daily, kpi=kpi, events=events, currentStatus=status, fuel=fuel, costs=costs,
                 maintenanceAvailable=not any("Nenhum PM" in str(c) for s in books["PMTrackerDW"] for r in s for c in r),
@@ -88,8 +97,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path)
     parser.add_argument("--output", type=Path, default=Path(".data/hyster.json"))
+    parser.add_argument("--legacy", type=Path, help="Optional historical workforce dashboard")
     args = parser.parse_args()
     data = convert(args.folder)
+    if args.legacy:
+        from import_legacy import convert_legacy
+        data["legacy"] = convert_legacy(args.legacy)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(json.dumps({"output": str(args.output), "days": len(data["daily"]), "events": len(data["events"])}))

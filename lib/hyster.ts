@@ -1,10 +1,11 @@
 export type Daily = { assetId: string; date: string; keyHours: number; presenceHours: number; workHours: number; idleHours: number; waitHours: number; sourceRow: number };
-export type HysterEvent = { assetId: string; date: string; time: string; type: string; sourceCritical: boolean; sourceStatus: string; sourceRow: number };
+export type HysterEvent = { assetId: string; date: string; time: string; type: string; cardCode?: string | null; sourceCritical: boolean; sourceStatus: string; sourceRow: number };
+export type LegacyData = { periodLabel: string; sourceFile: string; sha256: string; rows: { rowId: string; cardCode: string | null; cardQuality: string; sourceRow: number; metrics: Record<string, number | null>; legacyCalculated: Record<string, number | null>; legacyDisplay?: Record<string, number | string> }[]; impactArchive: { dateText: string; cardCode: string; type: string; sourceRow: number }[]; displayImpactTotal: number; displayFuelKg: number; warnings: string[] };
 export type HysterData = {
-  schemaVersion: number; provider: string; periodStart: string; periodEnd: string;
+  schemaVersion: number; provider: string; periodStart: string; periodEnd: string; operationId?: string; legacy?: LegacyData;
   assets: { assetId: string; serviceMeterHours: number }[];
   daily: Daily[]; events: HysterEvent[];
-  kpi: { assetId: string; keyHours: number; workHours: number; idleHours: number; serviceHours: number }[];
+  kpi: { assetId: string; keyHours: number; workHours: number; idleHours: number; serviceHours: number; presenceHours?: number; motionHours?: number; hydraulicHours?: number; liftHours?: number; monitoredHours?: number; loadHours?: number }[];
   currentStatus: { assetId: string; status: string; lastAccess: string }[];
   fuel: { assetId: string; reportedLiters: number }[];
   costs: { assetId: string; reportedCostPerHour: number; reportedTotal: number | null }[];
@@ -17,7 +18,8 @@ const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v 
 // Fail closed before rendering imported files. Never interpret arbitrary JSON as telemetry.
 export function validateHyster(value: unknown): HysterData {
   const d = value as HysterData;
-  if (!d || d.schemaVersion !== 1 || d.provider !== "Hyster Tracker" || !isDate(d.periodStart) || !isDate(d.periodEnd) || d.periodStart > d.periodEnd) throw new Error("Formato ou período Hyster inválido.");
+  if (!d || ![1, 2].includes(d.schemaVersion) || d.provider !== "Hyster Tracker" || !isDate(d.periodStart) || !isDate(d.periodEnd) || d.periodStart > d.periodEnd) throw new Error("Formato ou período Hyster inválido.");
+  if (d.operationId !== undefined && !/^[a-f0-9]{16}$/.test(d.operationId)) throw new Error("Operação inválida.");
   for (const key of ["assets", "daily", "events", "kpi", "currentStatus", "fuel", "costs", "sources"] as const) {
     if (!Array.isArray(d[key])) throw new Error(`Coleção ausente: ${key}`);
   }
@@ -32,6 +34,14 @@ export function validateHyster(value: unknown): HysterData {
     seen.add(key);
   }
   for (const e of d.events) if (!e || !ids.has(e.assetId) || !isDate(e.date) || e.date < d.periodStart || e.date > d.periodEnd || typeof e.type !== "string" || typeof e.time !== "string" || typeof e.sourceCritical !== "boolean") throw new Error("Evento inválido.");
+  for (const e of d.events) if (e.cardCode != null && (typeof e.cardCode !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(e.cardCode))) throw new Error("Código de cartão inválido.");
+  for (const r of d.kpi) for (const key of ["presenceHours", "motionHours", "hydraulicHours", "liftHours", "monitoredHours", "loadHours"] as const) if (r[key] !== undefined && !finite(r[key])) throw new Error("Contador adicional inválido.");
+  if (d.legacy) {
+    const l = d.legacy;
+    if (typeof l.periodLabel !== "string" || typeof l.sourceFile !== "string" || !/^[a-f0-9]{64}$/.test(l.sha256) || !Array.isArray(l.rows) || !Array.isArray(l.warnings) || l.warnings.some(w => typeof w !== "string") || !Array.isArray(l.impactArchive) || !finite(l.displayImpactTotal) || !finite(l.displayFuelKg)) throw new Error("Histórico legado inválido.");
+    for (const r of l.rows) if (!r || typeof r.rowId !== "string" || (r.cardCode !== null && !/^\d{1,64}$/.test(r.cardCode)) || !["complete", "incomplete", "ambiguous"].includes(r.cardQuality) || !Number.isInteger(r.sourceRow) || !r.metrics || !r.legacyCalculated || [...Object.values(r.metrics), ...Object.values(r.legacyCalculated)].some(v => v !== null && (typeof v !== "number" || !Number.isFinite(v)))) throw new Error("Linha legada inválida.");
+    for (const r of l.rows) if (r.legacyDisplay && Object.values(r.legacyDisplay).some(v => typeof v !== "string" && (typeof v !== "number" || !Number.isFinite(v)))) throw new Error("Quadro histórico inválido.");
+  }
   for (const r of d.kpi) if (!r || !ids.has(r.assetId) || ![r.keyHours, r.workHours, r.idleHours, r.serviceHours].every(finite)) throw new Error("KPI inválido.");
   for (const r of d.currentStatus) if (!r || !ids.has(r.assetId) || typeof r.status !== "string" || typeof r.lastAccess !== "string") throw new Error("Snapshot inválido.");
   for (const r of d.fuel) if (!r || !ids.has(r.assetId) || !finite(r.reportedLiters)) throw new Error("Combustível inválido.");
