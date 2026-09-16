@@ -1,0 +1,414 @@
+.hyster .globalFilters,
+.hyster .executivePage {
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hyster .globalFilters {
+  margin-top: 14px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: minmax(180px, .55fr) minmax(0, 2fr);
+  gap: 14px 24px;
+  align-items: end;
+  background: rgba(255,255,255,.97);
+  border: 1px solid var(--pulso-border);
+  border-radius: 12px;
+  position: sticky;
+  top: 88px;
+  z-index: 25;
+  box-shadow: 0 8px 24px rgba(17,24,39,.05);
+}
+
+.hyster .filterLead {
+  display: grid;
+  gap: 3px;
+}
+
+.hyster .filterLead strong {
+  font-size: 15px;
+}
+
+.hyster .filterLead small {
+  font-size: 12px;
+}
+
+.hyster .filterFields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.hyster .filterFields label {
+  display: grid;
+  gap: 5px;
+  color: var(--pulso-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.hyster .filterFields input,
+.hyster .filterFields select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--pulso-text);
+  background: var(--pulso-surface);
+  border: 1px solid var(--pulso-border-strong);
+  border-radius: 8px;
+}
+
+.hyster .scopeNotice {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 10px;
+  color: var(--pulso-text-2);
+  border-top: 1px solid var(--pulso-border);
+  font-size: 12px;
+}
+
+.hyster .scopeNotice svg {
+  flex: 0 0 auto;
+  color: var(--pulso-teal);
+  margin-top: 1px;
+}
+
+.hyster .scopeNotice.warning {
+  color: #92400e;
+}
+
+.hyster .scopeNotice.warning svg {
+  color: #b45309;
+}
+
+.hyster .executivePage {
+  padding-bottom: 24px;
+}
+
+.hyster .executiveKpis {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hyster .executiveKpis article {
+  min-width: 0;
+  padding: 17px 18px;
+  display: grid;
+  gap: 5px;
+  background: var(--pulso-surface);
+  border: 1px solid var(--pulso-border);
+  border-radius: 11px;
+}
+
+.hyster .executiveKpis article.productivityKpi {
+  border-color: #99f6e4;
+  box-shadow: inset 0 3px 0 var(--pulso-teal);
+}
+
+.hyster .executiveKpis article.impactKpi {
+  border-color: #fdba74;
+  box-shadow: inset 0 3px 0 #ea580c;
+}
+
+.hyster .executiveKpis span {
+  color: var(--pulso-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hyster .executiveKpis strong {
+  font-size: clamp(23px, 2vw, 31px);
+  line-height: 1.1;
+  letter-spacing: -.035em;
+}
+
+.hyster .executiveKpis small {
+  font-size: 11px;
+}
+
+.hyster .interpretationCard {
+  margin-top: 16px;
+  padding: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdfd 100%);
+  border: 1px solid var(--pulso-border);
+  border-radius: 12px;
+}
+
+.hyster .interpretationHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.hyster .interpretationHeader h3 {
+  margin-top: 5px;
+  font-size: 21px;
+}
+
+.hyster .interpretationHeader svg {
+  color: var(--pulso-teal);
+}
+
+.hyster .interpretationGrid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--pulso-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.hyster .interpretationGrid article {
+  min-width: 0;
+  padding: 16px;
+  background: #fff;
+}
+
+.hyster .interpretationGrid article + article {
+  border-left: 1px solid var(--pulso-border);
+}
+
+.hyster .interpretationGrid span,
+.hyster .humanGuidance span,
+.hyster .decisionFlow span {
+  display: block;
+  color: var(--pulso-teal);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.hyster .interpretationGrid p,
+.hyster .humanGuidance p,
+.hyster .decisionFlow p {
+  margin: 6px 0 0;
+  color: var(--pulso-text-2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.hyster .humanFirst .priorityDetailPane h3 {
+  max-width: 820px;
+  font-size: clamp(20px, 1.8vw, 26px);
+  line-height: 1.25;
+}
+
+.hyster .humanGuidance {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hyster .humanGuidance article {
+  padding: 15px;
+  background: #f8fafc;
+  border: 1px solid var(--pulso-border);
+  border-radius: 9px;
+}
+
+.hyster .scopeChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 520px;
+  padding: 5px 9px;
+  color: var(--pulso-muted);
+  background: var(--pulso-surface-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hyster .fleetOverview {
+  margin-top: 18px;
+}
+
+.hyster .fleetOverview .sectionHeading {
+  margin-bottom: 14px;
+}
+
+.hyster .humanAI {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: minmax(300px, .72fr) minmax(0, 1.5fr);
+  gap: 14px;
+}
+
+.hyster .aiQueue,
+.hyster .aiDetail {
+  min-width: 0;
+  padding: 20px;
+  background: var(--pulso-surface);
+  border: 1px solid var(--pulso-border);
+  border-radius: 12px;
+}
+
+.hyster .aiQueue {
+  align-self: start;
+  position: sticky;
+  top: 230px;
+}
+
+.hyster .aiInsightList {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+  max-height: 640px;
+  overflow: auto;
+}
+
+.hyster .aiInsightList button {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.hyster .humanDetail > h2 {
+  margin: 12px 0 18px;
+  max-width: 920px;
+  font-size: clamp(24px, 2.1vw, 32px);
+  line-height: 1.2;
+}
+
+.hyster .decisionFlow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hyster .decisionFlow article {
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid var(--pulso-border);
+  border-radius: 10px;
+}
+
+.hyster .copilotExplanation {
+  margin-top: 16px;
+  padding: 18px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+}
+
+.hyster .copilotExplanation h3 {
+  margin-top: 12px;
+}
+
+.hyster .copilotExplanation p {
+  color: var(--pulso-text-2);
+}
+
+.hyster .actionDecision {
+  margin-top: 16px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  background: #fff;
+  border: 1px solid var(--pulso-border);
+  border-left: 4px solid var(--pulso-teal);
+  border-radius: 10px;
+}
+
+.hyster .actionDecision > div {
+  max-width: 820px;
+}
+
+.hyster .actionDecision h3 {
+  margin-top: 5px;
+}
+
+.hyster .actionDecision p {
+  margin: 7px 0;
+  color: var(--pulso-text-2);
+}
+
+.hyster .contextEvidence {
+  margin-top: 14px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--pulso-border);
+  border-radius: 10px;
+}
+
+.hyster .contextFacts {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hyster .contextFacts span {
+  padding: 7px 10px;
+  color: var(--pulso-text-2);
+  background: var(--pulso-surface-soft);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.hyster .technicalDetails {
+  margin-top: 16px;
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--pulso-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.hyster .technicalDetails summary {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pulso-text-2);
+  background: #f9fafb;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.hyster .technicalDetails[open] > :not(summary) {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.hyster .technicalDetails .hysterTable {
+  margin-top: 12px;
+}
+
+@media (max-width: 1180px) {
+  .hyster .filterFields { grid-template-columns: repeat(2, minmax(150px, 1fr)) auto; }
+  .hyster .executiveKpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hyster .interpretationGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hyster .interpretationGrid article:nth-child(3) { border-left: 0; border-top: 1px solid var(--pulso-border); }
+  .hyster .interpretationGrid article:nth-child(4) { border-top: 1px solid var(--pulso-border); }
+}
+
+@media (max-width: 900px) {
+  .hyster .globalFilters { position: static; grid-template-columns: 1fr; }
+  .hyster .filterFields { grid-template-columns: 1fr 1fr; }
+  .hyster .filterFields .secondaryAction { grid-column: 1 / -1; }
+  .hyster .humanAI { grid-template-columns: 1fr; }
+  .hyster .aiQueue { position: static; }
+  .hyster .decisionFlow { grid-template-columns: 1fr; }
+  .hyster .humanGuidance { grid-template-columns: 1fr; }
+  .hyster .actionDecision { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 620px) {
+  .hyster .executiveKpis { grid-template-columns: 1fr 1fr; }
+  .hyster .interpretationGrid { grid-template-columns: 1fr; }
+  .hyster .interpretationGrid article + article { border-left: 0; border-top: 1px solid var(--pulso-border); }
+  .hyster .filterFields { grid-template-columns: 1fr; }
+  .hyster .filterFields .secondaryAction { grid-column: auto; }
+  .hyster .scopeChip { display: none; }
+}
