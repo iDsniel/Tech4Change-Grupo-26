@@ -9,34 +9,27 @@ import {
   ChevronRight,
   ClipboardList,
   Database,
-  Gauge,
   Settings2,
   Sparkles,
   Truck
 } from "lucide-react";
+import { analyzeHyster, validateHyster, type HysterData } from "@/lib/hyster";
 import {
-  analyzeHyster,
-  validateHyster,
-  workforceMetricKeys,
-  workforceMetricLabels,
-  workforceStatistic,
-  type HysterData,
-  type WorkforceMetricKey,
-  type WorkforceMetrics
-} from "@/lib/hyster";
-import { analyzeOperationalAI, type OperationalAIInsight } from "@/lib/operationalAI";
+  analyzeOperationalAI,
+  type OperationalAIInsight
+} from "@/lib/operationalAI";
+import { analyzeWorkforceProfiles, type WorkforceAssetProfile } from "@/lib/workforceProfile";
 import { addDataset, combineDatasets, emptyWorkspace, validateWorkspace, type Workspace } from "@/lib/operations";
 import { readWorkspace, saveWorkspace } from "@/lib/operationsStorage";
 import OperationsConsole from "./OperationsConsole";
 import OperationalAIPanel from "./OperationalAIPanel";
 import "./hyster.css";
 
-const fmt = (value: number | null | undefined, digits = 2) => value == null ? "n/d" : value.toLocaleString("pt-BR", { maximumFractionDigits: digits });
+const fmt = (value: number | null | undefined) => value == null ? "n/d" : Math.round(value).toLocaleString("pt-BR");
 const ratio = (numerator: number | undefined, denominator: number | undefined) => numerator != null && denominator != null && denominator > 0 ? numerator / denominator * 100 : undefined;
 const between = (value: string, start: string, end: string) => value >= start && value <= end;
 
 type ViewKey = "overview" | "investigate" | "actions" | "base";
-type WorkforceContext = { metrics: WorkforceMetrics; usageCount: number; coverage: number; warning?: string };
 
 const navItems: Array<{ key: ViewKey; label: string; icon: React.ReactNode }> = [
   { key: "overview", label: "Visão geral", icon: <Activity size={17} /> },
@@ -53,39 +46,6 @@ const containsHistoricalDataset = (value: unknown) => {
   return datasets.some((item) => !!item && typeof item === "object" && ("legacy" in (item as Record<string, unknown>) || "historical2023" in (item as Record<string, unknown>)));
 };
 
-function mergeMetrics(rows: WorkforceMetrics[]) {
-  const metrics: WorkforceMetrics = {};
-  for (const key of workforceMetricKeys) {
-    const values = rows.flatMap((row) => row[key] == null ? [] : [row[key] as number]);
-    if (values.length) metrics[key] = values.reduce((sum, value) => sum + value, 0);
-  }
-  return metrics;
-}
-
-function workforceContext(data: HysterData, assetId: string, cardCode: string): WorkforceContext | undefined {
-  const workforce = data.workforce;
-  if (!workforce) return undefined;
-
-  if (cardCode !== "all") {
-    const matches = workforce.cards.filter((row) => row.cardCode === cardCode);
-    if (matches.length !== 1 || matches[0].cardQuality !== "complete") {
-      return { metrics: {}, usageCount: 0, coverage: 0, warning: "Código incompleto, ambíguo ou duplicado na origem; o Pulso não agrega esses totais automaticamente." };
-    }
-    const selectedCard = matches[0];
-    if (assetId === "all") return { metrics: selectedCard.metrics, usageCount: selectedCard.usageCount, coverage: 1 };
-    const selectedAsset = selectedCard.assets.find((row) => row.assetId === assetId);
-    if (!selectedAsset) return { metrics: {}, usageCount: 0, coverage: 0, warning: `O cartão ${cardCode} não possui recorte agregado para ${assetId}.` };
-    return { metrics: selectedAsset.metrics, usageCount: selectedAsset.usageCount, coverage: 1 };
-  }
-
-  const complete = workforce.cards.filter((row) => row.cardQuality === "complete");
-  if (assetId === "all") {
-    return { metrics: mergeMetrics(complete.map((row) => row.metrics)), usageCount: complete.reduce((sum, row) => sum + row.usageCount, 0), coverage: complete.length };
-  }
-  const assets = complete.flatMap((row) => row.assets.filter((entry) => entry.assetId === assetId));
-  return { metrics: mergeMetrics(assets.map((row) => row.metrics)), usageCount: assets.reduce((sum, row) => sum + row.usageCount, 0), coverage: assets.length };
-}
-
 function dailyTotals(rows: HysterData["daily"]) {
   const total = (key: "keyHours" | "workHours" | "idleHours" | "waitHours") => rows.reduce((sum, row) => sum + row[key], 0);
   const key = total("keyHours");
@@ -96,32 +56,21 @@ function dailyTotals(rows: HysterData["daily"]) {
 }
 
 function plainInsight(insight: OperationalAIInsight) {
-  if (insight.category === "safety") return `${insight.relatedEvents.impacts} impacto(s) registrado(s) neste contexto. O evento merece revisão antes de qualquer conclusão.`;
-  if (insight.category === "reliability") return `${insight.relatedEvents.faults} registro(s) de falha apareceram no mesmo dia, em um comportamento diferente do habitual deste equipamento.`;
-  if (insight.category === "multivariate") return "Vários sinais operacionais mudaram juntos de uma forma pouco comum para este equipamento.";
+  if (insight.category === "safety") return `${insight.relatedEvents.impacts} impacto(s) em contexto fora do padrão.`;
+  if (insight.category === "reliability") return `${insight.relatedEvents.faults} registro(s) de falha concentrados no dia.`;
+  if (insight.category === "multivariate") return "Combinação operacional rara para este equipamento.";
   const phrases: string[] = [];
-  if (insight.evidence.some((item) => item.metric === "idlePct" && item.zScore > 0)) phrases.push("ociosidade acima do habitual");
-  if (insight.evidence.some((item) => item.metric === "waitPct" && item.zScore > 0)) phrases.push("espera acima do habitual");
-  if (insight.evidence.some((item) => item.metric === "workPct" && item.zScore < 0)) phrases.push("trabalho abaixo do habitual");
-  return phrases.length ? `O Pulso encontrou ${phrases.join(" e ")} para este equipamento.` : "O comportamento do equipamento ficou diferente do seu padrão habitual.";
+  if (insight.evidence.some((item) => item.metric === "idlePct" && item.zScore > 0)) phrases.push("tempo ocioso acima do padrão");
+  if (insight.evidence.some((item) => item.metric === "waitPct" && item.zScore > 0)) phrases.push("espera acima do padrão");
+  if (insight.evidence.some((item) => item.metric === "workPct" && item.zScore < 0)) phrases.push("trabalho abaixo do padrão");
+  return phrases.length ? phrases.join(" e ") : "Comportamento diferente do histórico.";
 }
 
-function whyItMatters(insight: OperationalAIInsight) {
-  if (insight.category === "safety") return "Impactos podem sinalizar condição de rota, piso, carga, condução ou equipamento e precisam de contexto para serem interpretados.";
-  if (insight.category === "reliability") return "Recorrência de falhas pode afetar disponibilidade; vale confrontar os registros com inspeção e histórico de manutenção.";
-  return "A diferença pode vir de demanda, fila, rota, liberação de área ou condição do equipamento. O objetivo é direcionar a investigação, não apontar culpados.";
-}
-
-function simpleOrientation(insight: OperationalAIInsight) {
-  if (insight.category === "safety") return "Revise o evento com operação e segurança. Confira rota, piso, carga e condição do equipamento antes de concluir a causa.";
-  if (insight.category === "reliability") return "Confira se a falha se repetiu, consulte manutenção e valide em campo antes de abrir uma corretiva.";
-  if (insight.category === "multivariate") return "Converse com a operação para entender o que mudou no dia e acompanhe os próximos turnos comparáveis.";
-  return "Valide demanda, filas, abastecimento, liberação de área e condição do equipamento. Se o comportamento persistir, registre uma ação para acompanhamento.";
-}
-
-function metricDailyAverage(data: HysterData, card: string, asset: string, metric: WorkforceMetricKey) {
-  if (card === "all") return undefined;
-  return workforceStatistic(data, card, metric, asset)?.dailyAverage;
+function profileHeadline(profile?: WorkforceAssetProfile) {
+  const signal = profile?.signals[0];
+  if (!signal) return "Sem desvio relevante no perfil";
+  const direction = signal.value >= signal.fleetMean ? "acima" : "abaixo";
+  return `${signal.label}: ${fmt(signal.value)}${signal.unit === "%" ? "%" : ` ${signal.unit}`} · ${direction} da frota`;
 }
 
 export default function HysterDashboard() {
@@ -141,13 +90,14 @@ export default function HysterDashboard() {
   const data = useMemo(() => combineDatasets(workspace.datasets), [workspace.datasets]);
   const fullReport = useMemo(() => data ? analyzeHyster(data) : null, [data]);
   const ai = useMemo(() => data ? analyzeOperationalAI(data) : null, [data]);
+  const workforceProfiles = useMemo(() => data ? analyzeWorkforceProfiles(data) : undefined, [data]);
 
   useEffect(() => {
     readWorkspace()
       .then((loaded) => {
         setWorkspace(loaded);
         setReady(true);
-        setSaved("Base recuperada deste navegador.");
+        setSaved("Base recuperada.");
       })
       .catch((cause: Error) => {
         setError(cause.message);
@@ -166,7 +116,7 @@ export default function HysterDashboard() {
     try {
       await saveWorkspace(next);
       setWorkspace(next);
-      setSaved("Alterações salvas neste navegador.");
+      setSaved("Alterações salvas.");
     } finally {
       setBusy(false);
     }
@@ -188,7 +138,7 @@ export default function HysterDashboard() {
       const raw = JSON.parse(await file.text());
       if (containsHistoricalDataset(raw)) throw new Error("Este backup contém dados fora da operação atual.");
       const restored = validateWorkspace(raw);
-      if (!window.confirm("Restaurar este backup substituirá a gestão salva neste navegador. Exporte o backup atual antes de continuar.")) return;
+      if (!window.confirm("Restaurar este backup substituirá a gestão salva neste navegador.")) return;
       await save(restored);
       setError("");
       setAsset("all");
@@ -227,6 +177,7 @@ export default function HysterDashboard() {
 
   function openInsight(insight: OperationalAIInsight) {
     setFocusInsightId(insight.id);
+    setAsset(insight.assetId);
     setView("investigate");
   }
 
@@ -234,107 +185,63 @@ export default function HysterDashboard() {
     return <main className="pageShell hyster">
       <header className="pulsoHeader">
         <div className="pulsoBrand"><div className="pulsoMark"><Sparkles size={20} /></div><div><span>Copiloto Operacional AI</span><h1>Pulso</h1></div></div>
-        <div className="pulsoHeaderMeta"><span className="sourceBadge muted">Aguardando base</span><a className="demoLink" href="/">Ver demo sintética</a></div>
+        <div className="pulsoHeaderMeta"><span className="sourceBadge muted">Aguardando base</span></div>
       </header>
       {error && <div className="inlineAlert" role="alert"><AlertTriangle size={18} /><span>{error}</span></div>}
       <section className="emptyState">
-        <div className="emptyIcon"><Database size={26} /></div><span className="sectionEyebrow">COMEÇAR</span><h2>Carregue a operação para ativar o Pulso</h2>
-        <p>Uma única base alimenta indicadores, cartões, eventos, ordens e a camada de IA.</p>
-        <label className="primaryUpload">Importar base operacional JSON<input disabled={!ready || busy} aria-label="Selecionar base operacional JSON" type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label>
-        <small>{!ready ? "Recuperando dados locais…" : busy ? "Salvando…" : "Persistência local ao navegador nesta etapa."}</small>
+        <div className="emptyIcon"><Database size={26} /></div><h2>Importe a base operacional</h2>
+        <label className="primaryUpload">Importar JSON<input disabled={!ready || busy} aria-label="Selecionar base operacional JSON" type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label>
       </section>
     </main>;
   }
 
   const activeFrom = dateFrom || data.periodStart;
   const activeTo = dateTo || data.periodEnd;
-  const cardNames = new Map(data.workforce?.cards.flatMap((row) => row.cardCode ? [[row.cardCode, row.operatorName ?? ""] as const] : []) ?? []);
+  const effectiveCard = view === "investigate" ? card : "all";
   const cards = [...new Set([
     ...(data.workforce?.cards.flatMap((row) => row.cardCode ? [row.cardCode] : []) ?? []),
     ...data.events.flatMap((event) => event.cardCode ? [event.cardCode] : [])
   ])].sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
 
   const filteredDaily = data.daily.filter((row) => between(row.date, activeFrom, activeTo) && (asset === "all" || row.assetId === asset));
-  const filteredEvents = data.events.filter((event) => between(event.date, activeFrom, activeTo) && (asset === "all" || event.assetId === asset) && (card === "all" || event.cardCode === card));
+  const filteredEvents = data.events.filter((event) =>
+    between(event.date, activeFrom, activeTo) &&
+    (asset === "all" || event.assetId === asset) &&
+    (effectiveCard === "all" || event.cardCode === effectiveCard)
+  );
   const totals = dailyTotals(filteredDaily);
-  const workforce = workforceContext(data, asset, card);
-  const wfMetrics = workforce?.metrics ?? {};
-  const workforceScopeIsExact = !!data.workforce && activeFrom === data.workforce.periodStart && activeTo === data.workforce.periodEnd;
-  const scopedByCard = card !== "all";
-
-  const displayedKey = scopedByCard && wfMetrics.keyHours != null ? wfMetrics.keyHours : totals.key;
-  const displayedWork = scopedByCard && wfMetrics.workHours != null ? wfMetrics.workHours : totals.work;
-  const displayedIdle = scopedByCard && wfMetrics.idleHours != null ? wfMetrics.idleHours : totals.idle;
-  const workPct = ratio(displayedWork, displayedKey);
-  const idlePct = ratio(displayedIdle, displayedKey);
-  const hydraulicPct = ratio(wfMetrics.hydraulicHours, wfMetrics.keyHours);
-  const auxiliaryHydraulicPct = ratio(wfMetrics.auxiliaryHydraulicHours, wfMetrics.keyHours);
-  const highSpeedPct = ratio(wfMetrics.highSpeedHours, wfMetrics.keyHours);
-  const lowOverspeedPct = ratio(wfMetrics.lowLevelOverspeedHours, wfMetrics.keyHours);
-  const highOverspeedPct = ratio(wfMetrics.highLevelOverspeedHours, wfMetrics.keyHours);
-  const marchHours = wfMetrics.forwardHours != null && wfMetrics.reverseHours != null ? wfMetrics.forwardHours + wfMetrics.reverseHours : undefined;
-  const marchPct = ratio(marchHours, wfMetrics.keyHours);
-  const forwardShare = ratio(wfMetrics.forwardHours, marchHours);
-  const reverseShare = ratio(wfMetrics.reverseHours, marchHours);
-  const loadedShare = ratio(wfMetrics.ladenHours, wfMetrics.ladenHours != null && wfMetrics.unladenHours != null ? wfMetrics.ladenHours + wfMetrics.unladenHours : undefined);
   const impacts = filteredEvents.filter((event) => event.type === "Impacto").length;
   const faults = filteredEvents.filter((event) => event.type === "Falha do sistema").length;
 
-  const dailyAverageDistance = metricDailyAverage(data, card, asset, "distanceKm");
-  const dailyAverageWork = metricDailyAverage(data, card, asset, "workHours");
-  const dailyAverageHighSpeed = metricDailyAverage(data, card, asset, "highSpeedHours");
-  const dailyAverageIdle = metricDailyAverage(data, card, asset, "idleHours");
-
-  const filteredAI = ai.insights.filter((insight) => between(insight.date, activeFrom, activeTo) && (asset === "all" || insight.assetId === asset) && (card === "all" || insight.relatedCardCodes.includes(card)));
+  const filteredAI = ai.insights.filter((insight) =>
+    between(insight.date, activeFrom, activeTo) &&
+    (asset === "all" || insight.assetId === asset) &&
+    (effectiveCard === "all" || insight.relatedCardCodes.includes(effectiveCard))
+  );
   const highInsights = filteredAI.filter((insight) => insight.priority === "high").length;
   const summarySelected = filteredAI.find((item) => item.id === focusInsightId) ?? filteredAI[0];
-  const today = new Date().toISOString().slice(0, 10);
-  const openOrders = workspace.orders.filter((order) => (order.status === "open" || order.status === "in_progress") && (asset === "all" || order.assetId === asset));
-  const overdueOrders = openOrders.filter((order) => order.dueDate < today).length;
-  const aggregateScope = data.workforce ? `${data.workforce.periodStart} → ${data.workforce.periodEnd}` : "sem indicadores agregados por cartão";
 
+  const profileMap = new Map((workforceProfiles?.profiles ?? []).map((profile) => [profile.assetId, profile]));
   const fleetRows = data.assets
     .filter((item) => asset === "all" || item.assetId === asset)
-    .filter((item) => {
-      if (card === "all") return true;
-      const workforceHit = data.workforce?.cards.some((row) => row.cardCode === card && row.assets.some((entry) => entry.assetId === item.assetId));
-      const eventHit = data.events.some((event) => event.cardCode === card && event.assetId === item.assetId);
-      return !!workforceHit || eventHit;
-    })
     .map((item) => {
       const rows = data.daily.filter((row) => row.assetId === item.assetId && between(row.date, activeFrom, activeTo));
       const assetTotals = dailyTotals(rows);
-      const wf = workforceContext(data, item.assetId, card);
-      const metrics = wf?.metrics ?? {};
-      const assetEvents = data.events.filter((event) => event.assetId === item.assetId && between(event.date, activeFrom, activeTo) && (card === "all" || event.cardCode === card));
-      const key = card !== "all" && metrics.keyHours != null ? metrics.keyHours : assetTotals.key;
-      const work = card !== "all" && metrics.workHours != null ? metrics.workHours : assetTotals.work;
-      const idle = card !== "all" && metrics.idleHours != null ? metrics.idleHours : assetTotals.idle;
-      const assetMarch = metrics.forwardHours != null && metrics.reverseHours != null ? metrics.forwardHours + metrics.reverseHours : undefined;
+      const assetEvents = data.events.filter((event) => event.assetId === item.assetId && between(event.date, activeFrom, activeTo));
       return {
         assetId: item.assetId,
-        workPct: ratio(work, key),
-        hydraulicPct: ratio(metrics.hydraulicHours, metrics.keyHours),
-        marchPct: ratio(assetMarch, metrics.keyHours),
-        highSpeedPct: ratio(metrics.highSpeedHours, metrics.keyHours),
-        idlePct: ratio(idle, key),
+        workPct: assetTotals.workPct,
+        idlePct: assetTotals.idlePct,
+        faults: assetEvents.filter((event) => event.type === "Falha do sistema").length,
         impacts: assetEvents.filter((event) => event.type === "Impacto").length,
-        faults: assetEvents.filter((event) => event.type === "Falha do sistema").length
+        profile: profileMap.get(item.assetId)
       };
     });
-
-  const productivitySentence = workPct == null
-    ? "Não há base suficiente para calcular trabalho/chave neste recorte."
-    : `Trabalho registrado em ${fmt(workPct)}% da chave${hydraulicPct != null ? `; uso hidráulico em ${fmt(hydraulicPct)}% da chave no agregado disponível` : ""}.`;
-  const movementSentence = marchPct == null
-    ? "A origem não permite calcular uso de marcha neste contexto."
-    : `Marcha registrada em ${fmt(marchPct)}% da chave${forwardShare != null && reverseShare != null ? `, com ${fmt(forwardShare)}% à frente e ${fmt(reverseShare)}% em ré` : ""}${highSpeedPct != null ? `; alta velocidade em ${fmt(highSpeedPct)}% da chave` : ""}.`;
-  const safetySentence = impacts === 0 ? "Nenhum impacto foi registrado no filtro atual." : `${impacts} impacto(s) foram registrados no filtro atual e devem ser contextualizados antes de qualquer conclusão.`;
 
   return <main className="pageShell hyster">
     <header className="pulsoHeader">
       <div className="pulsoBrand"><div className="pulsoMark"><Sparkles size={20} /></div><div><span>Copiloto Operacional AI</span><h1>Pulso</h1></div></div>
-      <div className="pulsoHeaderMeta"><span className="sourceBadge">Dados reais · schema v{data.schemaVersion}</span><span><CalendarRange size={15} /> {data.periodStart} → {data.periodEnd}</span><span><Truck size={15} /> {data.assets.length} equipamentos</span><a className="demoLink" href="/">Ver demo sintética</a><button className="iconAction" onClick={() => setView("base")} aria-label="Gerenciar base"><Settings2 size={18} /></button></div>
+      <div className="pulsoHeaderMeta"><span className="sourceBadge">Dados reais · Hyster Tracker</span><span><CalendarRange size={15} /> {data.periodStart} → {data.periodEnd}</span><span><Truck size={15} /> {data.assets.length} equipamentos</span><button className="iconAction" onClick={() => setView("base")} aria-label="Gerenciar base"><Settings2 size={18} /></button></div>
     </header>
 
     {error && <div className="inlineAlert" role="alert"><AlertTriangle size={18} /><span>{error}</span></div>}
@@ -342,65 +249,45 @@ export default function HysterDashboard() {
     <nav className="productNav" aria-label="Navegação do Pulso">{navItems.map((item) => <button key={item.key} aria-current={view === item.key ? "page" : undefined} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>{item.icon}<span>{item.label}</span>{item.key === "investigate" && highInsights > 0 && <em>{highInsights}</em>}</button>)}</nav>
 
     {(view === "overview" || view === "investigate") && <section className="globalFilters" aria-label="Filtros do contexto operacional">
-      <div className="filterLead"><span className="sectionEyebrow">CONTEXTO</span><strong>{asset === "all" ? "Toda a frota" : asset}{card === "all" ? "" : ` · cartão ${card}`}</strong><small>{activeFrom} → {activeTo}</small></div>
+      <div className="filterLead"><span className="sectionEyebrow">CONTEXTO</span><strong>{asset === "all" ? "Toda a frota" : asset}{effectiveCard === "all" ? "" : ` · cartão ${effectiveCard}`}</strong><small>{activeFrom} → {activeTo}</small></div>
       <div className="filterFields">
         <label>De<input type="date" min={data.periodStart} max={data.periodEnd} value={activeFrom} onChange={(event) => { const value = event.target.value; setDateFrom(value); if (value > activeTo) setDateTo(value); }} /></label>
         <label>Até<input type="date" min={data.periodStart} max={data.periodEnd} value={activeTo} onChange={(event) => { const value = event.target.value; setDateTo(value); if (value < activeFrom) setDateFrom(value); }} /></label>
         <label>Equipamento<select value={asset} onChange={(event) => setAsset(event.target.value)}><option value="all">Toda a frota</option>{data.assets.map((item) => <option key={item.assetId}>{item.assetId}</option>)}</select></label>
-        <label>Operador (cartão)<select value={card} onChange={(event) => setCard(event.target.value)}><option value="all">Todos os cartões</option>{cards.map((code) => <option value={code} key={code}>Cartão {code}{cardNames.get(code) ? ` · ${cardNames.get(code)}` : ""}</option>)}</select></label>
-        <button className="secondaryAction" onClick={() => { setAsset("all"); setCard("all"); setDateFrom(data.periodStart); setDateTo(data.periodEnd); }}>Limpar filtros</button>
+        {view === "investigate" && <label>Cartão<select value={card} onChange={(event) => setCard(event.target.value)}><option value="all">Todos</option>{cards.map((code) => <option value={code} key={code}>Cartão {code}</option>)}</select></label>}
+        <button className="secondaryAction" onClick={() => { setAsset("all"); setCard("all"); setDateFrom(data.periodStart); setDateTo(data.periodEnd); }}>Limpar</button>
       </div>
-      {data.workforce && !workforceScopeIsExact && <div className="scopeNotice"><Gauge size={16} /><span>Hidráulica, velocidade, marcha e demais totais por cartão são agregados de <strong>{aggregateScope}</strong>; o Pulso não rateia esses valores pelo intervalo escolhido.</span></div>}
-      {scopedByCard && data.workforce && <div className="scopeNotice"><Gauge size={16} /><span>As médias diária e mensal abaixo são as médias reportadas pela Hyster. Elas servem como referência e <strong>não são uma série diária reconstruída</strong>.</span></div>}
-      {workforce?.warning && <div className="scopeNotice warning"><AlertTriangle size={16} /><span>{workforce.warning}</span></div>}
     </section>}
 
     {view === "overview" && <section className="executivePage">
-      <div className="pageIntro"><div><span className="sectionEyebrow">VISÃO EXECUTIVA</span><h2>Entenda a operação antes de abrir os detalhes</h2><p>O Pulso transforma contadores e eventos em uma leitura operacional simples. Estatística e modelos ficam em segundo plano; a decisão continua humana.</p></div><button className="secondaryAction" onClick={() => setView("investigate")}><BrainCircuit size={17} /> Ver o que investigar</button></div>
-
-      <section className="executiveKpis">
-        <article><span>Trabalho / chave</span><strong>{workPct == null ? "n/d" : `${fmt(workPct)}%`}</strong><small>{scopedByCard ? `cartão ${card} · ${aggregateScope}` : `${fmt(displayedWork)} h de trabalho`}</small></article>
-        <article className="productivityKpi"><span>Hidráulica / chave</span><strong>{hydraulicPct == null ? "n/d" : `${fmt(hydraulicPct)}%`}</strong><small>{hydraulicPct == null ? "indicador não disponível" : "atividade hidráulica registrada"}</small></article>
-        <article><span>Marcha / chave</span><strong>{marchPct == null ? "n/d" : `${fmt(marchPct)}%`}</strong><small>{forwardShare != null && reverseShare != null ? `${fmt(forwardShare)}% frente · ${fmt(reverseShare)}% ré` : "frente/ré não disponível"}</small></article>
-        <article><span>Ociosidade / chave</span><strong>{idlePct == null ? "n/d" : `${fmt(idlePct)}%`}</strong><small>{scopedByCard && dailyAverageIdle != null ? `média Hyster ${fmt(dailyAverageIdle)} h/dia` : `${fmt(displayedIdle)} h registradas`}</small></article>
-        <article className={impacts ? "impactKpi" : ""}><span>Impactos</span><strong>{impacts}</strong><small>{faults} registro(s) de falha no mesmo filtro</small></article>
-        <article><span>Ações abertas</span><strong>{openOrders.length}</strong><small>{overdueOrders ? `${overdueOrders} vencida(s)` : "nenhuma vencida"}</small></article>
-      </section>
-
-      <article className="surfaceCard fleetOverview"><div className="sectionHeading"><div><span className="sectionEyebrow">PERFIL OPERACIONAL HYSTER</span><h3>Novas métricas preservadas da origem</h3></div><span className="scopeChip">{scopedByCard ? `Cartão ${card}` : aggregateScope}</span></div><div className="hysterTable fleetTable"><table><thead><tr><th>Indicador</th><th>Total / proporção</th><th>Média diária Hyster</th><th>Leitura</th></tr></thead><tbody>
-        <tr><th>{workforceMetricLabels.distanceKm}</th><td>{wfMetrics.distanceKm == null ? "n/d" : `${fmt(wfMetrics.distanceKm)} km`}</td><td>{dailyAverageDistance == null ? "—" : `${fmt(dailyAverageDistance)} km/dia`}</td><td>Intensidade de deslocamento no período agregado.</td></tr>
-        <tr><th>{workforceMetricLabels.highSpeedHours}</th><td>{highSpeedPct == null ? "n/d" : `${fmt(highSpeedPct)}% da chave`}</td><td>{dailyAverageHighSpeed == null ? "—" : `${fmt(dailyAverageHighSpeed)} h/dia`}</td><td>Contexto de exposição a alta velocidade; não é classificação do operador.</td></tr>
-        <tr><th>{workforceMetricLabels.lowLevelOverspeedHours}</th><td>{lowOverspeedPct == null ? "n/d" : `${fmt(lowOverspeedPct)}% da chave`}</td><td>{metricDailyAverage(data, card, asset, "lowLevelOverspeedHours") == null ? "—" : `${fmt(metricDailyAverage(data, card, asset, "lowLevelOverspeedHours"))} h/dia`}</td><td>{highOverspeedPct != null ? `Overspeed alto: ${fmt(highOverspeedPct)}% da chave.` : "Overspeed alto não disponível."}</td></tr>
-        <tr><th>{workforceMetricLabels.auxiliaryHydraulicHours}</th><td>{auxiliaryHydraulicPct == null ? "n/d" : `${fmt(auxiliaryHydraulicPct)}% da chave`}</td><td>{metricDailyAverage(data, card, asset, "auxiliaryHydraulicHours") == null ? "—" : `${fmt(metricDailyAverage(data, card, asset, "auxiliaryHydraulicHours"))} h/dia`}</td><td>Ajuda a caracterizar o tipo de atividade realizada.</td></tr>
-        <tr><th>Carga / descarregado</th><td>{loadedShare == null ? "n/d" : `${fmt(loadedShare)}% carregado`}</td><td>—</td><td>{wfMetrics.ladenHours === 0 ? "Sensor/indicador de carga está zerado nesta base; tratar como indisponível até validação." : `${fmt(wfMetrics.ladenHours)} h carregado · ${fmt(wfMetrics.unladenHours)} h descarregado`}</td></tr>
-        <tr><th>{workforceMetricLabels.seatBeltViolationHours}</th><td>{wfMetrics.seatBeltViolationHours == null ? "n/d" : `${fmt(wfMetrics.seatBeltViolationHours)} h`}</td><td>{metricDailyAverage(data, card, asset, "seatBeltViolationHours") == null ? "—" : `${fmt(metricDailyAverage(data, card, asset, "seatBeltViolationHours"))} h/dia`}</td><td>{data.workforce?.metricAvailability?.seatBeltViolationHours?.cardsWithNonZero === 0 ? "Métrica disponível no contrato, mas zerada para todos os cartões deste período." : "Sinal de segurança para investigação contextual."}</td></tr>
-      </tbody></table></div></article>
-
-      <section className="interpretationCard">
-        <div className="interpretationHeader"><div><span className="sectionEyebrow">LEITURA DO PULSO</span><h3>O que esses dados estão dizendo</h3></div><Sparkles size={22} /></div>
-        <div className="interpretationGrid">
-          <article><span>Produtividade</span><p>{productivitySentence}{scopedByCard && dailyAverageWork != null ? ` A média reportada pela Hyster é ${fmt(dailyAverageWork)} h de trabalho/dia.` : ""}</p></article>
-          <article><span>Movimento</span><p>{movementSentence}</p></article>
-          <article><span>Segurança e eventos</span><p>{safetySentence}{data.dataQuality?.eventExportCriticalOnly ? " A exportação de eventos está filtrada para Crítica = Sim, portanto não representa todo o universo de eventos." : ""}</p></article>
-          <article><span>Prioridade</span><p>{filteredAI.length ? `O Pulso separou ${filteredAI.length} situação(ões) para revisão; ${highInsights} exigem atenção maior.` : "Nenhuma situação foi priorizada pelo motor neste recorte. Isso não substitui inspeção ou rotina operacional."}</p></article>
-        </div>
-      </section>
+      <div className="pageIntro"><div><span className="sectionEyebrow">OPERAÇÃO</span><h2>Pulso da operação</h2></div><button className="secondaryAction" onClick={() => setView("investigate")}><BrainCircuit size={17} /> Investigar sinais</button></div>
 
       <section className="priorityWorkspace humanFirst">
-        <aside className="priorityListPane"><div className="sectionHeading"><div><span className="sectionEyebrow">PRIORIDADES</span><h3>O que merece atenção agora</h3></div><Gauge size={22} /></div><div className="priorityList">
-          {filteredAI.slice(0, 5).map((insight) => <button key={insight.id} className={summarySelected?.id === insight.id ? "selected" : ""} onClick={() => setFocusInsightId(insight.id)}><span className={`priorityPill ${insight.priority}`}>{insight.priority === "high" ? "Alta" : "Atenção"}</span><div><strong>{insight.assetId} · {insight.date}</strong><p>{plainInsight(insight)}</p><small>{insight.relatedCardCodes.length ? `Cartão(ões): ${insight.relatedCardCodes.join(", ")}` : "Sem cartão associado no evento"}</small></div><ChevronRight size={17} /></button>)}
-          {!filteredAI.length && <div className="quietState">Nenhuma situação foi priorizada neste filtro.</div>}
+        <aside className="priorityListPane"><div className="sectionHeading"><div><span className="sectionEyebrow">PRIORIDADES</span><h3>O que merece atenção</h3></div></div><div className="priorityList">
+          {filteredAI.slice(0, 5).map((insight) => <button key={insight.id} className={summarySelected?.id === insight.id ? "selected" : ""} onClick={() => setFocusInsightId(insight.id)}><span className={`priorityPill ${insight.priority}`}>{insight.priority === "high" ? "Alta" : "Atenção"}</span><div><strong>{insight.assetId} · {insight.date}</strong><p>{plainInsight(insight)}</p></div><ChevronRight size={17} /></button>)}
+          {!filteredAI.length && <div className="quietState">Nenhum sinal priorizado neste período.</div>}
         </div></aside>
-        <article className="priorityDetailPane">{summarySelected ? <><div className="detailTopline"><span className={`priorityPill ${summarySelected.priority}`}>{summarySelected.priority === "high" ? "Alta atenção" : "Atenção"}</span><span>{summarySelected.assetId} · {summarySelected.date}</span></div><h3>{plainInsight(summarySelected)}</h3><div className="humanGuidance"><article><span>Por que importa</span><p>{whyItMatters(summarySelected)}</p></article><article><span>O que verificar</span><p>{simpleOrientation(summarySelected)}</p></article></div><div className="detailActions"><button className="primaryAction" onClick={() => openInsight(summarySelected)}>Entender esta situação</button><button className="secondaryAction" onClick={() => registerAIAction(summarySelected)}>Registrar ação</button></div><small className="guardrailCopy">A leitura ajuda a priorizar investigação; não comprova causa nem responsabilidade individual.</small></> : <div className="quietState large">Selecione uma situação para ver a orientação do Pulso.</div>}</article>
+        <article className="priorityDetailPane">{summarySelected ? <><div className="detailTopline"><span className={`priorityPill ${summarySelected.priority}`}>{summarySelected.priority === "high" ? "Alta atenção" : "Atenção"}</span><span>{summarySelected.assetId} · {summarySelected.date}</span></div><h3>{summarySelected.title}</h3><p>{plainInsight(summarySelected)}</p><div className="detailActions"><button className="primaryAction" onClick={() => openInsight(summarySelected)}>Investigar</button></div></> : <div className="quietState large">Operação sem sinal priorizado no filtro.</div>}</article>
       </section>
 
-      <article className="surfaceCard fleetOverview"><div className="sectionHeading"><div><span className="sectionEyebrow">COMPARAÇÃO</span><h3>Equipamentos no contexto selecionado</h3></div><span className="scopeChip">Hidráulica, velocidade e marcha: {aggregateScope}</span></div><div className="hysterTable fleetTable"><table><thead><tr><th>Equipamento</th><th>Trabalho/chave</th><th>Hidráulica/chave</th><th>Marcha/chave</th><th>Alta velocidade</th><th>Ociosidade/chave</th><th>Impactos</th><th>Falhas</th><th></th></tr></thead><tbody>{fleetRows.map((row) => <tr key={row.assetId}><th>{row.assetId}</th><td>{row.workPct == null ? "n/d" : `${fmt(row.workPct)}%`}</td><td>{row.hydraulicPct == null ? "n/d" : `${fmt(row.hydraulicPct)}%`}</td><td>{row.marchPct == null ? "n/d" : `${fmt(row.marchPct)}%`}</td><td>{row.highSpeedPct == null ? "n/d" : `${fmt(row.highSpeedPct)}%`}</td><td>{row.idlePct == null ? "n/d" : `${fmt(row.idlePct)}%`}</td><td>{row.impacts}</td><td>{row.faults}</td><td><button className="rowAction" onClick={() => { setAsset(row.assetId); setView("investigate"); }}>Investigar</button></td></tr>)}</tbody></table></div></article>
+      <section className="executiveKpis">
+        <article><span>Trabalho / chave</span><strong>{totals.workPct == null ? "n/d" : `${fmt(totals.workPct)}%`}</strong><small>{fmt(totals.work)} h</small></article>
+        <article><span>Ocioso / chave</span><strong>{totals.idlePct == null ? "n/d" : `${fmt(totals.idlePct)}%`}</strong><small>{fmt(totals.idle)} h</small></article>
+        <article className={impacts ? "impactKpi" : ""}><span>Impactos</span><strong>{impacts}</strong><small>eventos no período</small></article>
+        <article><span>Falhas</span><strong>{faults}</strong><small>registros no período</small></article>
+        <article><span>Sinais priorizados</span><strong>{filteredAI.length}</strong><small>{highInsights} de alta atenção</small></article>
+      </section>
+
+      <article className="surfaceCard fleetOverview">
+        <div className="sectionHeading"><div><span className="sectionEyebrow">FROTA</span><h3>Performance e perfil operacional</h3></div>{workforceProfiles && <span className="scopeChip">Workforce · {workforceProfiles.activeMetricCount}/{workforceProfiles.configuredMetricCount} métricas ativas · {workforceProfiles.periodStart} → {workforceProfiles.periodEnd}</span>}</div>
+        <div className="hysterTable fleetTable"><table><thead><tr><th>Equipamento</th><th>Trabalho/chave</th><th>Ocioso/chave</th><th>Falhas</th><th>Impactos</th><th>Perfil operacional</th><th></th></tr></thead><tbody>{fleetRows.map((row) => <tr key={row.assetId}><th>{row.assetId}</th><td>{row.workPct == null ? "n/d" : `${fmt(row.workPct)}%`}</td><td>{row.idlePct == null ? "n/d" : `${fmt(row.idlePct)}%`}</td><td>{row.faults}</td><td>{row.impacts}</td><td>{profileHeadline(row.profile)}</td><td><button className="rowAction" onClick={() => { setAsset(row.assetId); setView("investigate"); }}>Investigar</button></td></tr>)}</tbody></table></div>
+      </article>
     </section>}
 
-    {view === "investigate" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">INVESTIGAR</span><h2>Do sinal à decisão, sem jargão na primeira leitura</h2><p>O Pulso explica o que mudou, por que merece atenção e o que vale verificar. Os detalhes estatísticos ficam disponíveis apenas quando necessários.</p></div></div><OperationalAIPanel data={data} assetFilter={asset} cardFilter={card} dateFrom={activeFrom} dateTo={activeTo} initialInsightId={focusInsightId} onRegisterAction={registerAIAction} /></section>}
+    {view === "investigate" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">INVESTIGAR</span><h2>Sinais priorizados</h2></div></div><OperationalAIPanel data={data} assetFilter={asset} cardFilter={card} dateFrom={activeFrom} dateTo={activeTo} initialInsightId={focusInsightId} onRegisterAction={registerAIAction} /></section>}
 
-    {view === "actions" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">AÇÕES</span><h2>Registre a decisão e acompanhe o resultado</h2><p>Transforme uma evidência validada em investigação, manutenção ou melhoria operacional. O Pulso não abre ação automaticamente.</p></div></div><OperationsConsole tab="maintenance" workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} /></section>}
+    {view === "actions" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">AÇÕES</span><h2>Acompanhamento</h2></div></div><OperationsConsole tab="maintenance" workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} /></section>}
 
-    {view === "base" && <section className="contentSection basePage"><div className="pageIntro"><div><span className="sectionEyebrow">BASE</span><h2>Dados, qualidade e persistência</h2><p>Importação e funções administrativas ficam fora da visão executiva.</p></div></div><section className="baseGrid"><article className="surfaceCard baseActions"><h3>Base operacional</h3><p><strong>{data.periodStart} → {data.periodEnd}</strong><br />{data.assets.length} equipamentos · {data.sources.length} fontes registradas · schema v{data.schemaVersion}</p><label className="primaryUpload">Importar nova base JSON<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label><button className="secondaryAction" disabled={!ready || busy} onClick={backup}>Exportar backup</button><label className="secondaryUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label><small role="status">{!ready ? "Recuperando…" : busy ? "Salvando…" : saved}</small></article><article className="surfaceCard"><h3>Qualidade observada</h3><ul className="qualityList"><li><strong>{fullReport.quality.waitAboveIdle}</strong><span>registros com espera maior que ociosidade</span></li><li><strong>{fullReport.quality.nonAdditive}</strong><span>registros com contadores não aditivos</span></li><li><strong>{fullReport.quality.rowsOmitted ?? "n/d"}</strong><span>equipamento-dias ausentes no Daily Fleet</span></li><li><strong>{data.dataQuality?.eventExportCriticalOnly ? "sim" : "não"}</strong><span>histórico de eventos filtrado apenas para críticos</span></li><li><strong>{data.fuel.every((item) => item.reportedLiters === 0) ? "n/d" : "ok"}</strong><span>combustível validado</span></li><li><strong>{data.maintenanceAvailable ? "sim" : "não"}</strong><span>manutenção detalhada na origem</span></li></ul><p className="mutedCopy">O Pulso não preenche dias ausentes, não inventa economia, não transforma ausência em zero e não reconstrói série diária a partir de médias Hyster.</p></article></section><article className="surfaceCard"><h3>Fontes da operação</h3><div className="sourceList">{data.sources.map((source) => <details key={source.sha256}><summary>{source.file}</summary><code>{source.sha256}</code><p>{source.sheets.map((sheet) => `${sheet.name} · ${sheet.rows} linhas${sheet.range ? ` · ${sheet.range}` : ""}`).join(" · ")}</p></details>)}</div></article><article className="surfaceCard"><h3>Dados complementares e apontamentos</h3><p>Planejamento, parada, combustível, custo e produção inseridos pela gestão continuam locais neste navegador.</p><OperationsConsole tab="inputs" workspace={workspace} data={data} save={save} busy={busy} /></article></section>}
+    {view === "base" && <section className="contentSection basePage"><div className="pageIntro"><div><span className="sectionEyebrow">BASE</span><h2>Dados e qualidade</h2></div></div><section className="baseGrid"><article className="surfaceCard baseActions"><h3>Base operacional</h3><p><strong>{data.periodStart} → {data.periodEnd}</strong><br />{data.assets.length} equipamentos · {data.sources.length} fontes · schema v{data.schemaVersion}</p><label className="primaryUpload">Importar nova base JSON<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label><button className="secondaryAction" disabled={!ready || busy} onClick={backup}>Exportar backup</button><label className="secondaryUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label><small role="status">{!ready ? "Recuperando…" : busy ? "Salvando…" : saved}</small></article><article className="surfaceCard"><h3>Qualidade</h3><ul className="qualityList"><li><strong>{fullReport.quality.waitAboveIdle}</strong><span>espera maior que tempo ocioso</span></li><li><strong>{fullReport.quality.nonAdditive}</strong><span>contadores não aditivos</span></li><li><strong>{fullReport.quality.rowsOmitted ?? "n/d"}</strong><span>equipamento-dias ausentes</span></li><li><strong>{data.dataQuality?.eventExportCriticalOnly ? "sim" : "não"}</strong><span>eventos filtrados para críticos</span></li><li><strong>{data.maintenanceAvailable ? "sim" : "não"}</strong><span>manutenção detalhada</span></li></ul></article></section><article className="surfaceCard"><h3>Fontes</h3><div className="sourceList">{data.sources.map((source) => <details key={source.sha256}><summary>{source.file}</summary><code>{source.sha256}</code><p>{source.sheets.map((sheet) => `${sheet.name} · ${sheet.rows} linhas${sheet.range ? ` · ${sheet.range}` : ""}`).join(" · ")}</p></details>)}</div></article></section>}
   </main>;
 }

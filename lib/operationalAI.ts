@@ -17,6 +17,8 @@ export type OperationalEvidence = {
   mean: number;
   stdDev: number;
   zScore: number;
+  recentMean?: number;
+  recentZScore?: number;
   unit: string;
 };
 
@@ -30,7 +32,9 @@ export type OperationalAIInsight = {
   summary: string;
   evidenceStrength: number;
   baselineSamples: number;
+  recentBaselineSamples: number;
   lookbackDays: number;
+  baselineScope: "all-previous-data";
   evidence: OperationalEvidence[];
   multivariate: {
     method: "isolation-forest";
@@ -52,6 +56,7 @@ export type OperationalAIInsight = {
 export type OperationalAIResult = {
   method: "rolling-zscore+isolation-forest";
   lookbackDays: number;
+  baselineScope: "all-previous-data";
   minBaselineSamples: number;
   features: OperationalMetricKey[];
   eligibleDays: number;
@@ -81,13 +86,13 @@ type FeatureRow = {
 
 type MetricStats = { mean: number; stdDev: number };
 
-const LOOKBACK_DAYS = 28;
+const RECENT_LOOKBACK_DAYS = 28;
 const MIN_BASELINE_SAMPLES = 10;
 const FEATURE_KEYS: OperationalMetricKey[] = ["keyHours", "workPct", "idlePct", "waitPct", "faultEvents", "impactEvents"];
 const METRIC_META: Record<OperationalMetricKey, { label: string; unit: string; floor: number }> = {
   keyHours: { label: "Chave ligada", unit: "h/dia", floor: 0.5 },
   workPct: { label: "Trabalho / chave", unit: "%", floor: 3 },
-  idlePct: { label: "Ociosidade / chave", unit: "%", floor: 3 },
+  idlePct: { label: "Tempo ocioso / chave", unit: "%", floor: 3 },
   waitPct: { label: "Espera / chave", unit: "%", floor: 3 },
   faultEvents: { label: "Registros de falha", unit: "eventos/dia", floor: 0.5 },
   impactEvents: { label: "Impactos", unit: "eventos/dia", floor: 0.5 }
@@ -151,15 +156,18 @@ function stats(rows: FeatureRow[], metric: OperationalMetricKey): MetricStats {
   return { mean: avg, stdDev: Math.max(stdDev(values, avg), METRIC_META[metric].floor) };
 }
 
-function evidence(row: FeatureRow, baseline: FeatureRow[], metric: OperationalMetricKey): OperationalEvidence {
-  const s = stats(baseline, metric);
+function evidence(row: FeatureRow, baseline: FeatureRow[], recent: FeatureRow[], metric: OperationalMetricKey): OperationalEvidence {
+  const historical = stats(baseline, metric);
+  const recentStats = recent.length >= MIN_BASELINE_SAMPLES ? stats(recent, metric) : undefined;
   return {
     metric,
     label: METRIC_META[metric].label,
     current: round(row[metric], 2),
-    mean: round(s.mean, 2),
-    stdDev: round(s.stdDev, 2),
-    zScore: round((row[metric] - s.mean) / s.stdDev, 2),
+    mean: round(historical.mean, 2),
+    stdDev: round(historical.stdDev, 2),
+    zScore: round((row[metric] - historical.mean) / historical.stdDev, 2),
+    recentMean: recentStats ? round(recentStats.mean, 2) : undefined,
+    recentZScore: recentStats ? round((row[metric] - recentStats.mean) / recentStats.stdDev, 2) : undefined,
     unit: METRIC_META[metric].unit
   };
 }
@@ -168,8 +176,8 @@ function vector(row: FeatureRow) {
   return FEATURE_KEYS.map((metric) => row[metric]);
 }
 
-function triggeredEvidence(row: FeatureRow, baseline: FeatureRow[]) {
-  const all = Object.fromEntries(FEATURE_KEYS.map((metric) => [metric, evidence(row, baseline, metric)])) as Record<OperationalMetricKey, OperationalEvidence>;
+function triggeredEvidence(row: FeatureRow, baseline: FeatureRow[], recent: FeatureRow[]) {
+  const all = Object.fromEntries(FEATURE_KEYS.map((metric) => [metric, evidence(row, baseline, recent, metric)])) as Record<OperationalMetricKey, OperationalEvidence>;
   const selected: OperationalEvidence[] = [];
   if (all.idlePct.zScore >= 2 && all.idlePct.current - all.idlePct.mean >= 10) selected.push(all.idlePct);
   if (all.waitPct.zScore >= 2 && all.waitPct.current - all.waitPct.mean >= 10) selected.push(all.waitPct);
@@ -187,9 +195,9 @@ function multivariateAgreement(percentile: number): OperationalAgreement {
 
 function multivariateExplanation(agreement: OperationalAgreement, percentile: number) {
   const pct = Math.round(percentile * 100);
-  if (agreement === "strong") return `A combinação de sinais também é rara: o Isolation Forest posicionou o dia no percentil ${pct} frente ao histórico comparável do mesmo equipamento.`;
-  if (agreement === "moderate") return `O modelo multivariado encontrou suporte parcial para o desvio (percentil ${pct} no histórico comparável).`;
-  return `O z-score encontrou evidência, mas a combinação completa teve suporte multivariado fraco (percentil ${pct}). A investigação deve permanecer aberta.`;
+  if (agreement === "strong") return `A combinação de sinais também é rara: o dia ficou no percentil ${pct} frente a todo o histórico anterior disponível do equipamento.`;
+  if (agreement === "moderate") return `O modelo multivariado encontrou suporte parcial para o desvio (percentil ${pct} no histórico anterior).`;
+  return `O desvio estatístico existe, mas a combinação completa teve suporte multivariado fraco (percentil ${pct}).`;
 }
 
 function priorityFor(selected: OperationalEvidence[], percentile: number, row: FeatureRow): OperationalPriority {
@@ -205,26 +213,26 @@ function categoryFor(row: FeatureRow, selected: OperationalEvidence[], ifOnly: b
 }
 
 function titleFor(category: OperationalInsightCategory) {
-  if (category === "safety") return "Impacto registrado em contexto fora do padrão";
-  if (category === "reliability") return "Concentração incomum de registros de falha";
+  if (category === "safety") return "Impacto em contexto fora do padrão";
+  if (category === "reliability") return "Concentração incomum de falhas";
   if (category === "multivariate") return "Combinação operacional rara";
-  return "Comportamento operacional fora do padrão";
+  return "Mudança no comportamento operacional";
 }
 
 function recommendationFor(category: OperationalInsightCategory, selected: OperationalEvidence[]) {
-  if (category === "safety") return "Revisar o evento com segurança e operação, validando piso, rota, carga, condição do equipamento e contexto do turno. Não atribuir responsabilidade apenas pelo cartão associado.";
-  if (category === "reliability") return "Revisar a recorrência dos registros de falha no equipamento e confrontar com inspeção/manutenção antes de concluir causa ou abrir corretiva.";
-  if (category === "multivariate") return "Validar em campo o que mudou no dia — demanda, fila, rota, liberação de área, escala e condição do equipamento — e acompanhar dias comparáveis antes de decidir intervenção.";
+  if (category === "safety") return "Revisar rota, piso, carga e condição do equipamento antes de concluir a causa.";
+  if (category === "reliability") return "Verificar recorrência dos códigos de falha e condição do equipamento.";
+  if (category === "multivariate") return "Validar o que mudou na operação e acompanhar os próximos dias comparáveis.";
   const hasWait = selected.some((item) => item.metric === "waitPct");
   const hasIdle = selected.some((item) => item.metric === "idlePct");
   const hasWork = selected.some((item) => item.metric === "workPct");
-  const focus = [hasWait ? "espera" : "", hasIdle ? "ociosidade" : "", hasWork ? "queda de trabalho/chave" : ""].filter(Boolean).join(", ");
-  return `Validar demanda, fila, abastecimento, liberação de área, rota e condição do equipamento${focus ? `, com foco em ${focus}` : ""}. Registrar a ação somente após validação operacional.`;
+  const focus = [hasWait ? "espera" : "", hasIdle ? "tempo ocioso" : "", hasWork ? "queda de trabalho/chave" : ""].filter(Boolean).join(", ");
+  return `Validar demanda, fila, rota e condição do equipamento${focus ? `, com foco em ${focus}` : ""}.`;
 }
 
 function summaryFor(selected: OperationalEvidence[], ifOnly: boolean, percentile: number) {
-  if (ifOnly) return `Nenhuma métrica isolada cruzou o gatilho principal, mas a combinação diária ficou no percentil ${Math.round(percentile * 100)} de raridade do histórico comparável.`;
-  return selected.map((item) => `${item.label}: ${item.current} ${item.unit} vs ${item.mean} (${item.zScore >= 0 ? "+" : ""}${item.zScore}σ)`).join(" · ");
+  if (ifOnly) return `A combinação diária ficou no percentil ${Math.round(percentile * 100)} de raridade do histórico anterior.`;
+  return selected.map((item) => `${item.label}: ${Math.round(item.current)} ${item.unit} vs ${Math.round(item.mean)}`).join(" · ");
 }
 
 function evidenceStrength(selected: OperationalEvidence[], percentile: number, ifOnly: boolean) {
@@ -240,10 +248,11 @@ export function analyzeOperationalAI(data: HysterData): OperationalAIResult {
   const insights: OperationalAIInsight[] = [];
 
   for (const row of rows) {
-    const baseline = rows.filter((candidate) => candidate.assetId === row.assetId && candidate.date < row.date && daysBetween(candidate.date, row.date) <= LOOKBACK_DAYS);
+    const baseline = rows.filter((candidate) => candidate.assetId === row.assetId && candidate.date < row.date);
     if (baseline.length < MIN_BASELINE_SAMPLES) continue;
+    const recent = baseline.filter((candidate) => daysBetween(candidate.date, row.date) <= RECENT_LOOKBACK_DAYS);
 
-    const { all, selected } = triggeredEvidence(row, baseline);
+    const { all, selected } = triggeredEvidence(row, baseline, recent);
     const isolation = scoreIsolationForest(baseline.map(vector), vector(row), `${row.assetId}:asset-day`, {
       trees: DEFAULT_ISOLATION_TREES,
       subsampleSize: DEFAULT_ISOLATION_SUBSAMPLE
@@ -268,7 +277,9 @@ export function analyzeOperationalAI(data: HysterData): OperationalAIResult {
       summary: summaryFor(detailEvidence, ifOnly, isolation.percentile),
       evidenceStrength: evidenceStrength(detailEvidence, isolation.percentile, ifOnly),
       baselineSamples: baseline.length,
-      lookbackDays: LOOKBACK_DAYS,
+      recentBaselineSamples: recent.length,
+      lookbackDays: RECENT_LOOKBACK_DAYS,
+      baselineScope: "all-previous-data",
       evidence: detailEvidence,
       multivariate: {
         method: "isolation-forest",
@@ -283,7 +294,7 @@ export function analyzeOperationalAI(data: HysterData): OperationalAIResult {
       relatedEvents: { faults: related?.faults ?? 0, impacts: related?.impacts ?? 0 },
       relatedCardCodes: [...(related?.cards ?? new Set<string>())].sort(),
       recommendation: recommendationFor(category, detailEvidence),
-      uncertainty: "O sinal mostra desvio ou raridade no histórico do mesmo equipamento. Não prova causa, não prevê pane e não atribui responsabilidade individual.",
+      uncertainty: "O sinal mostra diferença ou raridade no histórico do mesmo equipamento. Não prova causa, não prevê pane e não atribui responsabilidade individual.",
       sourceRows: [row.sourceRow]
     });
   }
@@ -291,7 +302,8 @@ export function analyzeOperationalAI(data: HysterData): OperationalAIResult {
   const sorted = insights.sort((a, b) => b.evidenceStrength - a.evidenceStrength || b.date.localeCompare(a.date));
   return {
     method: "rolling-zscore+isolation-forest",
-    lookbackDays: LOOKBACK_DAYS,
+    lookbackDays: RECENT_LOOKBACK_DAYS,
+    baselineScope: "all-previous-data",
     minBaselineSamples: MIN_BASELINE_SAMPLES,
     features: [...FEATURE_KEYS],
     eligibleDays: rows.length,
