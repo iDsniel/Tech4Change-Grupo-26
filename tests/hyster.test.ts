@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeHyster, totals, validateHyster, type Daily, type HysterData } from "../lib/hyster.ts";
+import { analyzeHyster, totals, validateHyster, workforceStatistic, type Daily, type HysterData } from "../lib/hyster.ts";
 
 const row = (date: string, key = 10, idle = 1): Daily => ({ assetId: "EP01", date, keyHours: key, idleHours: idle, workHours: key - idle, presenceHours: key, waitHours: idle, sourceRow: 4 });
 function fixture(): HysterData {
@@ -11,6 +11,31 @@ function withWorkforce(): HysterData {
   d.workforce = { periodStart: "2026-06-01", periodEnd: "2026-08-31", granularity: "card-period", unitSystem: "metric", sourceFile: "workforceKPITier7.xlsx", sha256: "a".repeat(64), warnings: [], cards: [{ cardCode: "00845", cardQuality: "complete", usageCount: 5, sourceRow: 3, metrics: { distanceKm: 9.5, keyHours: 3, idleHours: 0.7, motionHours: 1.9, liftHours: 0.4, lowerHours: 0.4, highSpeedHours: 0.3, reverseHours: 0.6, forwardHours: 1.4 }, assets: [{ assetId: "EP01", usageCount: 5, sourceRow: 4, metrics: { distanceKm: 9.5, keyHours: 3, idleHours: 0.7 } }] }] };
   return d;
 }
+function schema4(): HysterData {
+  const d = withWorkforce();
+  d.schemaVersion = 4;
+  d.assets[0] = { ...d.assets[0], trackerAssetId: "1", serviceId: "1", productId: 56019, equipmentName: "EP01 - TEST", serialNumber: "SERIAL01", site: "Santos", department: "Operação", equipmentClass: "Class V", sourceRow: 2 };
+  d.daily[0] = { ...d.daily[0], equipmentUsedCount: 1, usedPercent: 100, workPercent: 90, idlePercent: 10, waitPercentOfIdle: 100 };
+  d.events = [{ assetId: "EP01", date: "2026-06-01", time: "10:00:00", eventAt: "2026-06-01T10:00:00", startDate: "2026-06-01", startTime: "10:00:00", startAt: "2026-06-01T10:00:00", type: "Impacto", cardCode: "00845", operatorName: "OPERADOR TESTE", productId: 56019, equipmentName: "EP01 - TEST", serialNumber: "SERIAL01", trackerAssetId: "1", serviceId: "1", sourceCritical: true, sourceStatus: "Aberto", lockout: false, shutdown: false, sourceRow: 10 }];
+  d.currentStatusSnapshotAt = "2026-09-16T12:10";
+  d.currentStatus = [{ assetId: "EP01", status: "Active", lastAccessedAt: "2026-09-16T11:00", lastDrivenOrUsedBy: "OPERADOR TESTE", driveDuration: "01:10:22", driveDurationSeconds: 4222, sourceRow: 3 }];
+  d.fuel = [{ assetId: "EP01", dailyAverageLiters: 0, monthlyAverageLiters: 0, reportedLiters: 0, sourceRow: 2 }];
+  d.costs = [{ assetId: "EP01", startHours: 10, endHours: 100, intervalHours: 90, reportedCostPerHour: 0, reportedTotal: null, sourceRow: 3 }];
+  d.maintenance = { available: false, message: "Nenhum PM Tracker Data disponível para o relatório", periodStart: d.periodStart, periodEnd: d.periodEnd, records: [] };
+  d.dataQuality = { eventExportCriticalOnly: true, currentStatusSnapshotOutsideAnalysisPeriod: true, workforceMetricsAllZero: ["seatBeltViolationHours"], dailyFleetCoverage: { calendarDays: 92, assets: 1, possibleAssetDays: 92, rowsPresent: 1, rowsOmitted: 91 } };
+  d.sources = [{ file: "workforceKPITier7.xlsx", sha256: "b".repeat(64), sheets: [{ name: "Workforce KPI Report", range: "A1:ZZ10", rows: 10 }] }];
+  d.workforce!.cards[0].operatorName = "OPERADOR TESTE";
+  d.workforce!.cards[0].metrics = { ...d.workforce!.cards[0].metrics, auxiliaryHydraulicHours: 0.5, lowSpeedHours: 1, mediumSpeedHours: 0.4, lowLevelOverspeedHours: 0.2, highLevelOverspeedHours: 0, seatBeltViolationHours: 0, containerCount: 0, energyFuelUsedLiters: 0, ladenHours: 0, unladenHours: 3, workingUnladenHours: 2.3, unladenDurationHours: 3 };
+  d.workforce!.cards[0].statistics = {
+    distanceKm: { sourceLabel: "Odometer", unit: "km", dailyAverage: 3.2, monthlyAverage: 4.8, total: 9.5 },
+    workHours: { sourceLabel: "Working Duration", unit: "hours", dailyAverage: 0.7, monthlyAverage: 1.1, total: 2.2 }
+  };
+  d.workforce!.cards[0].assets[0].statistics = { distanceKm: { sourceLabel: "Odometer", unit: "km", dailyAverage: 3.2, monthlyAverage: 4.8, total: 9.5 } };
+  d.workforce!.metricAvailability = { seatBeltViolationHours: { sourceLabel: "Seat Belt Violation Duration", unit: "hours", cardsWithNonZero: 0, cardsTotal: 1, totalAcrossCards: 0 } };
+  d.workforce!.warnings = ["Daily and monthly averages are source-reported and must not be interpreted as a real card-by-day time series."];
+  return d;
+}
+
 test("ratios weight hours, not percentages; empty is unknown", () => {
   assert.equal(totals([row("2026-06-01", 1, 1), row("2026-06-02", 9, 0)]).idlePct, 10);
   assert.equal(totals([]).idlePct, null);
@@ -66,4 +91,30 @@ test("workforce incomplete identifiers stay null instead of leaking source label
   assert.equal(validateHyster(d).workforce?.cards[0].cardCode, null);
   d.workforce!.cards[0].cardCode = "845";
   assert.throws(() => validateHyster(d));
+});
+test("schema v4 preserves native Hyster statistics and enriched telemetry", () => {
+  const d = schema4();
+  const validated = validateHyster(d);
+  assert.equal(validated.schemaVersion, 4);
+  assert.equal(validated.assets[0].serialNumber, "SERIAL01");
+  assert.equal(validated.daily[0].workPercent, 90);
+  assert.equal(validated.events[0].operatorName, "OPERADOR TESTE");
+  assert.equal(validated.currentStatus[0].lastAccessedAt, "2026-09-16T11:00");
+  assert.equal(validated.workforce?.cards[0].metrics.auxiliaryHydraulicHours, 0.5);
+  assert.equal(workforceStatistic(validated, "00845", "distanceKm")?.dailyAverage, 3.2);
+  assert.equal(workforceStatistic(validated, "00845", "distanceKm", "EP01")?.monthlyAverage, 4.8);
+});
+test("source-reported averages remain context and quality flags remain explicit", () => {
+  const d = schema4();
+  const report = analyzeHyster(validateHyster(d));
+  assert.equal(report.totals.records, 1);
+  assert.equal(report.quality.eventExportCriticalOnly, true);
+  assert.equal(report.quality.rowsOmitted, 91);
+  assert.equal(d.workforce!.cards[0].statistics!.distanceKm!.dailyAverage, 3.2);
+  assert.equal(d.daily.length, 1, "a média Workforce não deve fabricar linhas card-day");
+});
+test("schema v4 rejects inconsistent metric availability", () => {
+  const d = schema4();
+  d.workforce!.metricAvailability!.seatBeltViolationHours!.cardsWithNonZero = 2;
+  assert.throws(() => validateHyster(d), /Disponibilidade Workforce/);
 });
