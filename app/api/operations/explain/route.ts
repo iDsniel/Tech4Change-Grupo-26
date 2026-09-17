@@ -55,9 +55,11 @@ REGRAS OBRIGATÓRIAS:
 14. A recomendação já foi definida pelo motor; torne-a mais clara e acionável, sem torná-la mais agressiva.
 15. Seja curto: headline com até 10 palavras; explanation com no máximo 4 frases; whyItMatters com no máximo 2 frases; uncertainty com 1 ou 2 frases.
 16. Prefira expressões como "acima do habitual", "abaixo do habitual", "diferente do comportamento normal", "o contexto agregado mostra" e "vale verificar".
-17. Responda em português do Brasil.
-18. Retorne APENAS JSON válido com exatamente as chaves string: headline, explanation, whyItMatters, uncertainty.
-19. Em uncertainty, diga explicitamente que a leitura é hipótese/indício e não comprova causalidade. Quando usar indicador agregado, também deixe claro que ele não representa necessariamente o dia analisado.
+17. Use sempre "tempo ocioso" ou "ocioso"; nunca use a palavra inglesa "idle" na resposta.
+18. Arredonde números apresentados ao usuário para inteiros; não use casas decimais.
+19. Responda em português do Brasil.
+20. Retorne APENAS JSON válido com exatamente as chaves string: headline, explanation, whyItMatters, uncertainty.
+21. Em uncertainty, diga explicitamente que a leitura é hipótese/indício e não comprova causalidade. Quando usar indicador agregado, também deixe claro que ele não representa necessariamente o dia analisado.
 
 EVIDÊNCIAS E CONTEXTO PERMITIDOS:
 ${JSON.stringify(packet)}`;
