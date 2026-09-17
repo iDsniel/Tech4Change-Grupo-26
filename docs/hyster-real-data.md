@@ -1,4 +1,4 @@
-# Pulso — operação e manutenção com dados atuais
+# Pulso — operação e manutenção com dados Hyster
 
 ## Executar e importar
 
@@ -11,97 +11,122 @@ npm install
 npm run dev
 ```
 
-Abra `http://localhost:3000/hyster` e importe **um único JSON operacional**. Os relatórios do fornecedor e os indicadores por cartão são fontes do mesmo pacote; não existem importações Hyster e Workforce separadas na experiência do usuário.
+Abra `http://localhost:3000/hyster` e importe **um único JSON operacional**. As planilhas Hyster são convertidas para o contrato interno `schemaVersion: 4`; o usuário não precisa importar cada relatório separadamente.
 
-Para a amostra atual do Tech4Change, o pacote real cobre exclusivamente **01/06/2026 a 31/08/2026**. O dashboard antigo utilizado durante a descoberta do produto não integra o Pulso, o JSON, o workspace nem os cálculos.
+A amostra atual cobre **01/06/2026 a 31/08/2026**. O status atual de frota é um snapshot separado e pode ter timestamp posterior ao período; o contrato registra essa diferença explicitamente.
 
-Veja também [contrato, privacidade e granularidade dos indicadores por cartão](workforce-kpi.md) e [decisão de escopo dos dados atuais](DECISION-2026-current-data-only.md).
+## Granularidades preservadas
 
-## Áreas funcionais
+O Pulso não tenta transformar todas as fontes no mesmo grão físico. Cada origem mantém a maior granularidade disponível:
 
-| Área | Comportamento |
+| Fonte | Grão preservado |
 | --- | --- |
-| Operação / Resumo | Horas, razões ponderadas, comparação mensal, presença, movimento, hidráulica, elevação e sinais estatísticos por equipamento |
-| Cartões e eventos | Consulta por código, equipamento e período; indicadores agregados por cartão, equipamentos associados, eventos e contexto operacional; sem nomes e sem ranking individual |
-| Ordens e manutenção | Preventiva, corretiva/investigação e melhoria operacional; equipe, prazo, prioridade, situação, histórico e conclusão real |
-| Apontamentos | Totais por equipamento/dia de horas planejadas, parada no período planejado, abastecimento, custo e produção |
-| Base | Importação única, backup/restauração, fontes, qualidade e rastreabilidade |
+| Daily Fleet Utilization | equipamento × dia |
+| Utilization KPI | equipamento × período |
+| Workforce KPI | cartão × período e cartão × equipamento × período |
+| Asset Operating History | evento × timestamp × equipamento × cartão |
+| Current Fleet Status | snapshot atual por equipamento |
+| Fuel / Cost | equipamento × período |
+| PM Tracker | registros de manutenção quando disponíveis |
 
-Um desvio pode abrir o formulário de ordem com equipamento e contexto preenchidos. A criação e o encerramento dependem de ação humana. Após a conclusão, a comparação antes/depois usa a série diária observada do equipamento e não prova causalidade.
+A regra de arquitetura é: **agregar dentro do Pulso quando seguro; nunca desagregar artificialmente**.
 
-No contexto por cartão, ordens são exibidas apenas como contexto dos equipamentos explicitamente relacionados na fonte. O total agregado do cartão nunca é convertido artificialmente em série temporal nem usado para atribuir efeito ou responsabilidade individual.
+## Schema v4
+
+O contrato preserva metadados de equipamento, indicadores brutos, estatísticas nativas da Hyster, eventos, snapshot atual, proveniência e qualidade.
+
+### Daily Fleet
+
+Além das horas de chave, presença, trabalho, ociosidade e espera, o v4 preserva quando disponíveis:
+
+- quantidade de equipamentos utilizados;
+- `% Used`;
+- `% Work`;
+- `% Idle`;
+- `% Wait of Idle`.
+
+Esses percentuais são valores reportados pela fonte. Eles são mantidos mesmo quando ultrapassam 100%; o Pulso não corrige silenciosamente a origem.
+
+### Fleet KPI
+
+Para cada métrica, o contrato pode guardar:
+
+```text
+statistics.metric.dailyAverage
+statistics.metric.monthlyAverage
+statistics.metric.total
+```
+
+As médias são valores reportados pela Hyster e ficam separadas da série diária observada.
+
+### Workforce KPI
+
+O v4 preserva 29 famílias de métricas, incluindo medidores, distância, trabalho, hidráulica, elevação/descida, perfil de velocidade, overspeed, frente/ré, ociosidade, cinto, carga/descarregado, contêineres e energia/combustível.
+
+Para cada métrica:
+
+```text
+metrics.<metric>                 # total do período, compatibilidade
+statistics.<metric>.dailyAverage
+statistics.<metric>.monthlyAverage
+statistics.<metric>.total
+```
+
+O contrato também registra `metricAvailability` para distinguir uma métrica suportada mas zerada no período de uma métrica ausente.
+
+### Eventos
+
+O ledger preserva timestamp, equipamento, cartão, tipo, status, criticidade, lockout e shutdown. O pacote registra se a exportação foi filtrada para `Crítica = Sim`.
+
+**Importante:** `sourceCritical=true` não transforma automaticamente o registro em falha ou em prioridade alta. O Pulso continua separando `Falha do sistema`, `Impacto` e demais tipos pelo nome do evento.
+
+### Status atual
+
+`currentStatus` representa um snapshot, não a história do trimestre. `currentStatusSnapshotAt` informa a captura e `dataQuality.currentStatusSnapshotOutsideAnalysisPeriod` impede a interface/IA de tratá-lo como evidência histórica quando estiver fora da janela analisada.
+
+## Privacidade
+
+O identificador operacional preservado é o **código do cartão**. O importador v4 não persiste nomes dos operadores, mesmo quando esses nomes existem nos XLSX de origem.
+
+A camada de contexto enviada para interpretação por IA também remove identidade de cartão/operador: métricas agregadas podem contextualizar um ativo, mas a IA não recebe identificadores individuais para atribuir responsabilidade.
+
+## Qualidade e rastreabilidade
+
+`dataQuality` registra, entre outros:
+
+- equipamento-dias presentes e omitidos;
+- métricas Workforce suportadas e zeradas;
+- combustível zerado na origem;
+- custo/hora zerado ou total ausente;
+- disponibilidade de PM Tracker;
+- exportação de eventos somente críticos;
+- snapshot atual fora do período analisado.
+
+Dias ausentes permanecem **desconhecidos**. Ausência de linha não vira zero automaticamente.
+
+Cada fonte guarda `sha256`, abas, intervalo utilizado e quantidade de linhas para rastreabilidade.
+
+## Uso pelo motor analítico
+
+O motor diário continua usando apenas informação realmente diária do equipamento para baseline, z-score e Isolation Forest. Métricas `card-period` ou `asset-period` entram como **contexto agregado**, nunca como se tivessem acontecido em um dia específico.
+
+O Operational Context Engine agora pode contextualizar um insight com:
+
+- movimento e hidráulica;
+- hidráulica auxiliar;
+- baixa/média/alta velocidade;
+- overspeed baixo/alto;
+- frente/ré;
+- cinto;
+- carga/descarregado;
+- disponibilidade de combustível e manutenção;
+- aviso de ledger filtrado apenas para eventos críticos.
+
+Isso amplia a explicação sem transformar correlação em causa.
 
 ## Persistência
 
-IndexedDB salva bases, ordens e apontamentos no navegador. Exportar backup inclui o estado local; Restaurar valida o arquivo antes de substituir o workspace.
-
-Esta etapa continua local e de um usuário. Backend autenticado, banco central e sincronização multiusuário permanecem roadmap.
-
-Uma nova extração do mesmo período substitui o lote anterior. Em períodos sobrepostos, a extração importada por último substitui os registros daquele recorte conforme as regras já implementadas. Eventos repetidos na origem são preservados como registros da fonte; não são reinterpretados como panes independentes.
-
-## Indicadores por cartão
-
-O importador valida as abas `Main Page` e `Workforce KPI Report`, unidade métrica, período e cabeçalhos esperados. Somente valores **Total Usage** explicitamente mapeados entram no contrato.
-
-A linha pai fornece o código do cartão e o total do período. Linhas filhas por equipamento ficam aninhadas no cartão e não são somadas novamente ao total. Nomes, números de série e nomes de equipamento não são persistidos.
-
-O código do cartão é texto: zeros à esquerda presentes na fonte são preservados e o Pulso não tenta reconstruir padding ausente em outra fonte.
-
-Quando disponíveis, podem existir:
-
-- usos;
-- medidor principal;
-- motor/tração;
-- medidores hidráulico e de tração;
-- distância;
-- tempo monitorado;
-- chave;
-- presença;
-- movimento;
-- função hidráulica;
-- trabalho;
-- elevação;
-- descida;
-- alta velocidade;
-- frente;
-- ré;
-- ociosidade.
-
-Campo ausente permanece ausente. Zero informado pela origem continua zero.
-
-A granularidade é `card-period`. O filtro mensal afeta séries diárias e eventos, mas nunca reparte horas, distância ou demais totais agregados por cartão por mês ou dia.
-
-## Período e snapshots
-
-Todo registro temporal usado na análise real deve pertencer ao intervalo declarado pelo pacote.
-
-Para a base atual:
-
-- `periodStart`: `2026-06-01`;
-- `periodEnd`: `2026-08-31`;
-- `daily`: somente datas dentro desse intervalo;
-- `events`: somente datas dentro desse intervalo;
-- indicadores por cartão: mesmo intervalo da operação.
-
-Snapshots capturados fora do período não devem ser apresentados como evidência do trimestre. Na base entregue para o MVP, o snapshot de status capturado em setembro foi removido do JSON corrente.
-
-## Semântica e qualidade
-
-- Diário: dias ausentes permanecem desconhecidos. Razões usam soma de horas. Trabalho/chave não mede produtividade física.
-- Eventos: crítico na origem não determina prioridade. Cartão associado não comprova responsabilidade.
-- Indicadores por cartão: não somar linha pai com linhas filhas e não distribuir total do período por mês/dia.
-- Códigos de cartão: igualdade textual exata; incompletos/ambíguos são sinalizados.
-- Não assumir trabalho + ociosidade = chave nem tratar movimento e hidráulica como tempos exclusivos.
-- KPI agregado: horímetro de serviço é diferente de tempo de chave.
-- Combustível zerado, custos ausentes e manutenção sem registros não comprovam consumo zero, custo zero ou manutenção em dia.
-- Baseline exploratório: mesmo equipamento, 28 dias anteriores, mínimo de dez registros com chave ≥ 1 h; média e desvio amostral da razão diária; sinal com z ≥ 2 e aumento ≥ 10 pontos percentuais. A data avaliada e o futuro nunca entram na referência.
-- A visão real não inventa probabilidade de pane, economia ou causalidade.
-
-## Dados pessoais e publicação
-
-O código do cartão é preservado como identificador operacional. Nomes de operadores não entram no contrato atual. Dados reais, XLSX, JSON operacional e backups não devem ser commitados no repositório público.
-
-`.gitignore` bloqueia `.data/`, `*.xlsx` e `Pulso-base-*.json`.
+IndexedDB salva bases, ordens e apontamentos no navegador. Uma nova extração do mesmo período substitui o lote anterior. Em períodos sobrepostos, os registros diários/eventos do recorte mais recente substituem os anteriores conforme as regras de `combineDatasets`; contadores agregados não são somados quando isso poderia duplicar informação.
 
 ## Verificação
 
@@ -113,4 +138,4 @@ npm run lint
 npm run build
 ```
 
-Os testes cobrem códigos de cartão como texto, granularidade, importação idempotente, sobreposição, separação de operações, unidades, ordens, integridade do backup e janelas de acompanhamento.
+Dados reais, XLSX, JSON operacional e backups permanecem fora do repositório público.
