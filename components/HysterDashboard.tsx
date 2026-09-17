@@ -18,7 +18,10 @@ import {
   analyzeHyster,
   validateHyster,
   workforceMetricKeys,
+  workforceMetricLabels,
+  workforceStatistic,
   type HysterData,
+  type WorkforceMetricKey,
   type WorkforceMetrics
 } from "@/lib/hyster";
 import { analyzeOperationalAI, type OperationalAIInsight } from "@/lib/operationalAI";
@@ -68,11 +71,11 @@ function workforceContext(data: HysterData, assetId: string, cardCode: string): 
     if (matches.length !== 1 || matches[0].cardQuality !== "complete") {
       return { metrics: {}, usageCount: 0, coverage: 0, warning: "Código incompleto, ambíguo ou duplicado na origem; o Pulso não agrega esses totais automaticamente." };
     }
-    const card = matches[0];
-    if (assetId === "all") return { metrics: card.metrics, usageCount: card.usageCount, coverage: 1 };
-    const asset = card.assets.find((row) => row.assetId === assetId);
-    if (!asset) return { metrics: {}, usageCount: 0, coverage: 0, warning: `O cartão ${cardCode} não possui recorte agregado para ${assetId}.` };
-    return { metrics: asset.metrics, usageCount: asset.usageCount, coverage: 1 };
+    const selectedCard = matches[0];
+    if (assetId === "all") return { metrics: selectedCard.metrics, usageCount: selectedCard.usageCount, coverage: 1 };
+    const selectedAsset = selectedCard.assets.find((row) => row.assetId === assetId);
+    if (!selectedAsset) return { metrics: {}, usageCount: 0, coverage: 0, warning: `O cartão ${cardCode} não possui recorte agregado para ${assetId}.` };
+    return { metrics: selectedAsset.metrics, usageCount: selectedAsset.usageCount, coverage: 1 };
   }
 
   const complete = workforce.cards.filter((row) => row.cardQuality === "complete");
@@ -114,6 +117,11 @@ function simpleOrientation(insight: OperationalAIInsight) {
   if (insight.category === "reliability") return "Confira se a falha se repetiu, consulte manutenção e valide em campo antes de abrir uma corretiva.";
   if (insight.category === "multivariate") return "Converse com a operação para entender o que mudou no dia e acompanhe os próximos turnos comparáveis.";
   return "Valide demanda, filas, abastecimento, liberação de área e condição do equipamento. Se o comportamento persistir, registre uma ação para acompanhamento.";
+}
+
+function metricDailyAverage(data: HysterData, card: string, asset: string, metric: WorkforceMetricKey) {
+  if (card === "all") return undefined;
+  return workforceStatistic(data, card, metric, asset)?.dailyAverage;
 }
 
 export default function HysterDashboard() {
@@ -240,6 +248,7 @@ export default function HysterDashboard() {
 
   const activeFrom = dateFrom || data.periodStart;
   const activeTo = dateTo || data.periodEnd;
+  const cardNames = new Map(data.workforce?.cards.flatMap((row) => row.cardCode ? [[row.cardCode, row.operatorName ?? ""] as const] : []) ?? []);
   const cards = [...new Set([
     ...(data.workforce?.cards.flatMap((row) => row.cardCode ? [row.cardCode] : []) ?? []),
     ...data.events.flatMap((event) => event.cardCode ? [event.cardCode] : [])
@@ -259,12 +268,22 @@ export default function HysterDashboard() {
   const workPct = ratio(displayedWork, displayedKey);
   const idlePct = ratio(displayedIdle, displayedKey);
   const hydraulicPct = ratio(wfMetrics.hydraulicHours, wfMetrics.keyHours);
+  const auxiliaryHydraulicPct = ratio(wfMetrics.auxiliaryHydraulicHours, wfMetrics.keyHours);
+  const highSpeedPct = ratio(wfMetrics.highSpeedHours, wfMetrics.keyHours);
+  const lowOverspeedPct = ratio(wfMetrics.lowLevelOverspeedHours, wfMetrics.keyHours);
+  const highOverspeedPct = ratio(wfMetrics.highLevelOverspeedHours, wfMetrics.keyHours);
   const marchHours = wfMetrics.forwardHours != null && wfMetrics.reverseHours != null ? wfMetrics.forwardHours + wfMetrics.reverseHours : undefined;
   const marchPct = ratio(marchHours, wfMetrics.keyHours);
   const forwardShare = ratio(wfMetrics.forwardHours, marchHours);
   const reverseShare = ratio(wfMetrics.reverseHours, marchHours);
+  const loadedShare = ratio(wfMetrics.ladenHours, wfMetrics.ladenHours != null && wfMetrics.unladenHours != null ? wfMetrics.ladenHours + wfMetrics.unladenHours : undefined);
   const impacts = filteredEvents.filter((event) => event.type === "Impacto").length;
   const faults = filteredEvents.filter((event) => event.type === "Falha do sistema").length;
+
+  const dailyAverageDistance = metricDailyAverage(data, card, asset, "distanceKm");
+  const dailyAverageWork = metricDailyAverage(data, card, asset, "workHours");
+  const dailyAverageHighSpeed = metricDailyAverage(data, card, asset, "highSpeedHours");
+  const dailyAverageIdle = metricDailyAverage(data, card, asset, "idleHours");
 
   const filteredAI = ai.insights.filter((insight) => between(insight.date, activeFrom, activeTo) && (asset === "all" || insight.assetId === asset) && (card === "all" || insight.relatedCardCodes.includes(card)));
   const highInsights = filteredAI.filter((insight) => insight.priority === "high").length;
@@ -297,6 +316,7 @@ export default function HysterDashboard() {
         workPct: ratio(work, key),
         hydraulicPct: ratio(metrics.hydraulicHours, metrics.keyHours),
         marchPct: ratio(assetMarch, metrics.keyHours),
+        highSpeedPct: ratio(metrics.highSpeedHours, metrics.keyHours),
         idlePct: ratio(idle, key),
         impacts: assetEvents.filter((event) => event.type === "Impacto").length,
         faults: assetEvents.filter((event) => event.type === "Falha do sistema").length
@@ -308,13 +328,13 @@ export default function HysterDashboard() {
     : `Trabalho registrado em ${fmt(workPct)}% da chave${hydraulicPct != null ? `; uso hidráulico em ${fmt(hydraulicPct)}% da chave no agregado disponível` : ""}.`;
   const movementSentence = marchPct == null
     ? "A origem não permite calcular uso de marcha neste contexto."
-    : `Marcha registrada em ${fmt(marchPct)}% da chave${forwardShare != null && reverseShare != null ? `, com ${fmt(forwardShare)}% à frente e ${fmt(reverseShare)}% em ré` : ""}.`;
+    : `Marcha registrada em ${fmt(marchPct)}% da chave${forwardShare != null && reverseShare != null ? `, com ${fmt(forwardShare)}% à frente e ${fmt(reverseShare)}% em ré` : ""}${highSpeedPct != null ? `; alta velocidade em ${fmt(highSpeedPct)}% da chave` : ""}.`;
   const safetySentence = impacts === 0 ? "Nenhum impacto foi registrado no filtro atual." : `${impacts} impacto(s) foram registrados no filtro atual e devem ser contextualizados antes de qualquer conclusão.`;
 
   return <main className="pageShell hyster">
     <header className="pulsoHeader">
       <div className="pulsoBrand"><div className="pulsoMark"><Sparkles size={20} /></div><div><span>Copiloto Operacional AI</span><h1>Pulso</h1></div></div>
-      <div className="pulsoHeaderMeta"><span className="sourceBadge">Dados reais</span><span><CalendarRange size={15} /> {data.periodStart} → {data.periodEnd}</span><span><Truck size={15} /> {data.assets.length} equipamentos</span><a className="demoLink" href="/">Ver demo sintética</a><button className="iconAction" onClick={() => setView("base")} aria-label="Gerenciar base"><Settings2 size={18} /></button></div>
+      <div className="pulsoHeaderMeta"><span className="sourceBadge">Dados reais · schema v{data.schemaVersion}</span><span><CalendarRange size={15} /> {data.periodStart} → {data.periodEnd}</span><span><Truck size={15} /> {data.assets.length} equipamentos</span><a className="demoLink" href="/">Ver demo sintética</a><button className="iconAction" onClick={() => setView("base")} aria-label="Gerenciar base"><Settings2 size={18} /></button></div>
     </header>
 
     {error && <div className="inlineAlert" role="alert"><AlertTriangle size={18} /><span>{error}</span></div>}
@@ -327,10 +347,11 @@ export default function HysterDashboard() {
         <label>De<input type="date" min={data.periodStart} max={data.periodEnd} value={activeFrom} onChange={(event) => { const value = event.target.value; setDateFrom(value); if (value > activeTo) setDateTo(value); }} /></label>
         <label>Até<input type="date" min={data.periodStart} max={data.periodEnd} value={activeTo} onChange={(event) => { const value = event.target.value; setDateTo(value); if (value < activeFrom) setDateFrom(value); }} /></label>
         <label>Equipamento<select value={asset} onChange={(event) => setAsset(event.target.value)}><option value="all">Toda a frota</option>{data.assets.map((item) => <option key={item.assetId}>{item.assetId}</option>)}</select></label>
-        <label>Operador (cartão)<select value={card} onChange={(event) => setCard(event.target.value)}><option value="all">Todos os cartões</option>{cards.map((code) => <option value={code} key={code}>Cartão {code}</option>)}</select></label>
+        <label>Operador (cartão)<select value={card} onChange={(event) => setCard(event.target.value)}><option value="all">Todos os cartões</option>{cards.map((code) => <option value={code} key={code}>Cartão {code}{cardNames.get(code) ? ` · ${cardNames.get(code)}` : ""}</option>)}</select></label>
         <button className="secondaryAction" onClick={() => { setAsset("all"); setCard("all"); setDateFrom(data.periodStart); setDateTo(data.periodEnd); }}>Limpar filtros</button>
       </div>
-      {data.workforce && !workforceScopeIsExact && <div className="scopeNotice"><Gauge size={16} /><span>Hidráulica, marcha e demais totais por cartão são agregados de <strong>{aggregateScope}</strong>; o Pulso não rateia esses valores pelo intervalo escolhido.</span></div>}
+      {data.workforce && !workforceScopeIsExact && <div className="scopeNotice"><Gauge size={16} /><span>Hidráulica, velocidade, marcha e demais totais por cartão são agregados de <strong>{aggregateScope}</strong>; o Pulso não rateia esses valores pelo intervalo escolhido.</span></div>}
+      {scopedByCard && data.workforce && <div className="scopeNotice"><Gauge size={16} /><span>As médias diária e mensal abaixo são as médias reportadas pela Hyster. Elas servem como referência e <strong>não são uma série diária reconstruída</strong>.</span></div>}
       {workforce?.warning && <div className="scopeNotice warning"><AlertTriangle size={16} /><span>{workforce.warning}</span></div>}
     </section>}
 
@@ -339,19 +360,28 @@ export default function HysterDashboard() {
 
       <section className="executiveKpis">
         <article><span>Trabalho / chave</span><strong>{workPct == null ? "n/d" : `${fmt(workPct)}%`}</strong><small>{scopedByCard ? `cartão ${card} · ${aggregateScope}` : `${fmt(displayedWork)} h de trabalho`}</small></article>
-        <article className="productivityKpi"><span>Hidráulica / chave</span><strong>{hydraulicPct == null ? "n/d" : `${fmt(hydraulicPct)}%`}</strong><small>{hydraulicPct == null ? "indicador não disponível" : "proxy de atividade hidráulica registrada"}</small></article>
+        <article className="productivityKpi"><span>Hidráulica / chave</span><strong>{hydraulicPct == null ? "n/d" : `${fmt(hydraulicPct)}%`}</strong><small>{hydraulicPct == null ? "indicador não disponível" : "atividade hidráulica registrada"}</small></article>
         <article><span>Marcha / chave</span><strong>{marchPct == null ? "n/d" : `${fmt(marchPct)}%`}</strong><small>{forwardShare != null && reverseShare != null ? `${fmt(forwardShare)}% frente · ${fmt(reverseShare)}% ré` : "frente/ré não disponível"}</small></article>
-        <article><span>Ociosidade / chave</span><strong>{idlePct == null ? "n/d" : `${fmt(idlePct)}%`}</strong><small>{fmt(displayedIdle)} h registradas</small></article>
+        <article><span>Ociosidade / chave</span><strong>{idlePct == null ? "n/d" : `${fmt(idlePct)}%`}</strong><small>{scopedByCard && dailyAverageIdle != null ? `média Hyster ${fmt(dailyAverageIdle)} h/dia` : `${fmt(displayedIdle)} h registradas`}</small></article>
         <article className={impacts ? "impactKpi" : ""}><span>Impactos</span><strong>{impacts}</strong><small>{faults} registro(s) de falha no mesmo filtro</small></article>
         <article><span>Ações abertas</span><strong>{openOrders.length}</strong><small>{overdueOrders ? `${overdueOrders} vencida(s)` : "nenhuma vencida"}</small></article>
       </section>
 
+      <article className="surfaceCard fleetOverview"><div className="sectionHeading"><div><span className="sectionEyebrow">PERFIL OPERACIONAL HYSTER</span><h3>Novas métricas preservadas da origem</h3></div><span className="scopeChip">{scopedByCard ? `Cartão ${card}` : aggregateScope}</span></div><div className="hysterTable fleetTable"><table><thead><tr><th>Indicador</th><th>Total / proporção</th><th>Média diária Hyster</th><th>Leitura</th></tr></thead><tbody>
+        <tr><th>{workforceMetricLabels.distanceKm}</th><td>{wfMetrics.distanceKm == null ? "n/d" : `${fmt(wfMetrics.distanceKm)} km`}</td><td>{dailyAverageDistance == null ? "—" : `${fmt(dailyAverageDistance)} km/dia`}</td><td>Intensidade de deslocamento no período agregado.</td></tr>
+        <tr><th>{workforceMetricLabels.highSpeedHours}</th><td>{highSpeedPct == null ? "n/d" : `${fmt(highSpeedPct)}% da chave`}</td><td>{dailyAverageHighSpeed == null ? "—" : `${fmt(dailyAverageHighSpeed)} h/dia`}</td><td>Contexto de exposição a alta velocidade; não é classificação do operador.</td></tr>
+        <tr><th>{workforceMetricLabels.lowLevelOverspeedHours}</th><td>{lowOverspeedPct == null ? "n/d" : `${fmt(lowOverspeedPct)}% da chave`}</td><td>{metricDailyAverage(data, card, asset, "lowLevelOverspeedHours") == null ? "—" : `${fmt(metricDailyAverage(data, card, asset, "lowLevelOverspeedHours"))} h/dia`}</td><td>{highOverspeedPct != null ? `Overspeed alto: ${fmt(highOverspeedPct)}% da chave.` : "Overspeed alto não disponível."}</td></tr>
+        <tr><th>{workforceMetricLabels.auxiliaryHydraulicHours}</th><td>{auxiliaryHydraulicPct == null ? "n/d" : `${fmt(auxiliaryHydraulicPct)}% da chave`}</td><td>{metricDailyAverage(data, card, asset, "auxiliaryHydraulicHours") == null ? "—" : `${fmt(metricDailyAverage(data, card, asset, "auxiliaryHydraulicHours"))} h/dia`}</td><td>Ajuda a caracterizar o tipo de atividade realizada.</td></tr>
+        <tr><th>Carga / descarregado</th><td>{loadedShare == null ? "n/d" : `${fmt(loadedShare)}% carregado`}</td><td>—</td><td>{wfMetrics.ladenHours === 0 ? "Sensor/indicador de carga está zerado nesta base; tratar como indisponível até validação." : `${fmt(wfMetrics.ladenHours)} h carregado · ${fmt(wfMetrics.unladenHours)} h descarregado`}</td></tr>
+        <tr><th>{workforceMetricLabels.seatBeltViolationHours}</th><td>{wfMetrics.seatBeltViolationHours == null ? "n/d" : `${fmt(wfMetrics.seatBeltViolationHours)} h`}</td><td>{metricDailyAverage(data, card, asset, "seatBeltViolationHours") == null ? "—" : `${fmt(metricDailyAverage(data, card, asset, "seatBeltViolationHours"))} h/dia`}</td><td>{data.workforce?.metricAvailability?.seatBeltViolationHours?.cardsWithNonZero === 0 ? "Métrica disponível no contrato, mas zerada para todos os cartões deste período." : "Sinal de segurança para investigação contextual."}</td></tr>
+      </tbody></table></div></article>
+
       <section className="interpretationCard">
         <div className="interpretationHeader"><div><span className="sectionEyebrow">LEITURA DO PULSO</span><h3>O que esses dados estão dizendo</h3></div><Sparkles size={22} /></div>
         <div className="interpretationGrid">
-          <article><span>Produtividade</span><p>{productivitySentence}</p></article>
+          <article><span>Produtividade</span><p>{productivitySentence}{scopedByCard && dailyAverageWork != null ? ` A média reportada pela Hyster é ${fmt(dailyAverageWork)} h de trabalho/dia.` : ""}</p></article>
           <article><span>Movimento</span><p>{movementSentence}</p></article>
-          <article><span>Segurança e eventos</span><p>{safetySentence}</p></article>
+          <article><span>Segurança e eventos</span><p>{safetySentence}{data.dataQuality?.eventExportCriticalOnly ? " A exportação de eventos está filtrada para Crítica = Sim, portanto não representa todo o universo de eventos." : ""}</p></article>
           <article><span>Prioridade</span><p>{filteredAI.length ? `O Pulso separou ${filteredAI.length} situação(ões) para revisão; ${highInsights} exigem atenção maior.` : "Nenhuma situação foi priorizada pelo motor neste recorte. Isso não substitui inspeção ou rotina operacional."}</p></article>
         </div>
       </section>
@@ -364,13 +394,13 @@ export default function HysterDashboard() {
         <article className="priorityDetailPane">{summarySelected ? <><div className="detailTopline"><span className={`priorityPill ${summarySelected.priority}`}>{summarySelected.priority === "high" ? "Alta atenção" : "Atenção"}</span><span>{summarySelected.assetId} · {summarySelected.date}</span></div><h3>{plainInsight(summarySelected)}</h3><div className="humanGuidance"><article><span>Por que importa</span><p>{whyItMatters(summarySelected)}</p></article><article><span>O que verificar</span><p>{simpleOrientation(summarySelected)}</p></article></div><div className="detailActions"><button className="primaryAction" onClick={() => openInsight(summarySelected)}>Entender esta situação</button><button className="secondaryAction" onClick={() => registerAIAction(summarySelected)}>Registrar ação</button></div><small className="guardrailCopy">A leitura ajuda a priorizar investigação; não comprova causa nem responsabilidade individual.</small></> : <div className="quietState large">Selecione uma situação para ver a orientação do Pulso.</div>}</article>
       </section>
 
-      <article className="surfaceCard fleetOverview"><div className="sectionHeading"><div><span className="sectionEyebrow">COMPARAÇÃO</span><h3>Equipamentos no contexto selecionado</h3></div><span className="scopeChip">Hidráulica e marcha: {aggregateScope}</span></div><div className="hysterTable fleetTable"><table><thead><tr><th>Equipamento</th><th>Trabalho/chave</th><th>Hidráulica/chave</th><th>Marcha/chave</th><th>Ociosidade/chave</th><th>Impactos</th><th>Falhas</th><th></th></tr></thead><tbody>{fleetRows.map((row) => <tr key={row.assetId}><th>{row.assetId}</th><td>{row.workPct == null ? "n/d" : `${fmt(row.workPct)}%`}</td><td>{row.hydraulicPct == null ? "n/d" : `${fmt(row.hydraulicPct)}%`}</td><td>{row.marchPct == null ? "n/d" : `${fmt(row.marchPct)}%`}</td><td>{row.idlePct == null ? "n/d" : `${fmt(row.idlePct)}%`}</td><td>{row.impacts}</td><td>{row.faults}</td><td><button className="rowAction" onClick={() => { setAsset(row.assetId); setView("investigate"); }}>Investigar</button></td></tr>)}</tbody></table></div></article>
+      <article className="surfaceCard fleetOverview"><div className="sectionHeading"><div><span className="sectionEyebrow">COMPARAÇÃO</span><h3>Equipamentos no contexto selecionado</h3></div><span className="scopeChip">Hidráulica, velocidade e marcha: {aggregateScope}</span></div><div className="hysterTable fleetTable"><table><thead><tr><th>Equipamento</th><th>Trabalho/chave</th><th>Hidráulica/chave</th><th>Marcha/chave</th><th>Alta velocidade</th><th>Ociosidade/chave</th><th>Impactos</th><th>Falhas</th><th></th></tr></thead><tbody>{fleetRows.map((row) => <tr key={row.assetId}><th>{row.assetId}</th><td>{row.workPct == null ? "n/d" : `${fmt(row.workPct)}%`}</td><td>{row.hydraulicPct == null ? "n/d" : `${fmt(row.hydraulicPct)}%`}</td><td>{row.marchPct == null ? "n/d" : `${fmt(row.marchPct)}%`}</td><td>{row.highSpeedPct == null ? "n/d" : `${fmt(row.highSpeedPct)}%`}</td><td>{row.idlePct == null ? "n/d" : `${fmt(row.idlePct)}%`}</td><td>{row.impacts}</td><td>{row.faults}</td><td><button className="rowAction" onClick={() => { setAsset(row.assetId); setView("investigate"); }}>Investigar</button></td></tr>)}</tbody></table></div></article>
     </section>}
 
     {view === "investigate" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">INVESTIGAR</span><h2>Do sinal à decisão, sem jargão na primeira leitura</h2><p>O Pulso explica o que mudou, por que merece atenção e o que vale verificar. Os detalhes estatísticos ficam disponíveis apenas quando necessários.</p></div></div><OperationalAIPanel data={data} assetFilter={asset} cardFilter={card} dateFrom={activeFrom} dateTo={activeTo} initialInsightId={focusInsightId} onRegisterAction={registerAIAction} /></section>}
 
     {view === "actions" && <section className="contentSection"><div className="pageIntro"><div><span className="sectionEyebrow">AÇÕES</span><h2>Registre a decisão e acompanhe o resultado</h2><p>Transforme uma evidência validada em investigação, manutenção ou melhoria operacional. O Pulso não abre ação automaticamente.</p></div></div><OperationsConsole tab="maintenance" workspace={workspace} data={data} save={save} busy={busy} suggestion={suggestion} /></section>}
 
-    {view === "base" && <section className="contentSection basePage"><div className="pageIntro"><div><span className="sectionEyebrow">BASE</span><h2>Dados, qualidade e persistência</h2><p>Importação e funções administrativas ficam fora da visão executiva.</p></div></div><section className="baseGrid"><article className="surfaceCard baseActions"><h3>Base operacional</h3><p><strong>{data.periodStart} → {data.periodEnd}</strong><br />{data.assets.length} equipamentos · {data.sources.length} fontes registradas</p><label className="primaryUpload">Importar nova base JSON<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label><button className="secondaryAction" disabled={!ready || busy} onClick={backup}>Exportar backup</button><label className="secondaryUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label><small role="status">{!ready ? "Recuperando…" : busy ? "Salvando…" : saved}</small></article><article className="surfaceCard"><h3>Qualidade observada</h3><ul className="qualityList"><li><strong>{fullReport.quality.waitAboveIdle}</strong><span>registros com espera maior que ociosidade</span></li><li><strong>{fullReport.quality.nonAdditive}</strong><span>registros com contadores não aditivos</span></li><li><strong>{data.fuel.every((item) => item.reportedLiters === 0) ? "n/d" : "ok"}</strong><span>combustível validado</span></li><li><strong>{data.maintenanceAvailable ? "sim" : "não"}</strong><span>manutenção detalhada na origem</span></li></ul><p className="mutedCopy">O Pulso não preenche dias ausentes, não inventa economia e não transforma ausência em zero.</p></article></section><article className="surfaceCard"><h3>Fontes da operação</h3><div className="sourceList">{data.sources.map((source) => <details key={source.sha256}><summary>{source.file}</summary><code>{source.sha256}</code><p>{source.sheets.map((sheet) => `${sheet.name} · ${sheet.rows} linhas`).join(" · ")}</p></details>)}</div></article><article className="surfaceCard"><h3>Dados complementares e apontamentos</h3><p>Planejamento, parada, combustível, custo e produção inseridos pela gestão continuam locais neste navegador.</p><OperationsConsole tab="inputs" workspace={workspace} data={data} save={save} busy={busy} /></article></section>}
+    {view === "base" && <section className="contentSection basePage"><div className="pageIntro"><div><span className="sectionEyebrow">BASE</span><h2>Dados, qualidade e persistência</h2><p>Importação e funções administrativas ficam fora da visão executiva.</p></div></div><section className="baseGrid"><article className="surfaceCard baseActions"><h3>Base operacional</h3><p><strong>{data.periodStart} → {data.periodEnd}</strong><br />{data.assets.length} equipamentos · {data.sources.length} fontes registradas · schema v{data.schemaVersion}</p><label className="primaryUpload">Importar nova base JSON<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void importFile(event.target.files?.[0])} /></label><button className="secondaryAction" disabled={!ready || busy} onClick={backup}>Exportar backup</button><label className="secondaryUpload">Restaurar backup<input disabled={!ready || busy} type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label><small role="status">{!ready ? "Recuperando…" : busy ? "Salvando…" : saved}</small></article><article className="surfaceCard"><h3>Qualidade observada</h3><ul className="qualityList"><li><strong>{fullReport.quality.waitAboveIdle}</strong><span>registros com espera maior que ociosidade</span></li><li><strong>{fullReport.quality.nonAdditive}</strong><span>registros com contadores não aditivos</span></li><li><strong>{fullReport.quality.rowsOmitted ?? "n/d"}</strong><span>equipamento-dias ausentes no Daily Fleet</span></li><li><strong>{data.dataQuality?.eventExportCriticalOnly ? "sim" : "não"}</strong><span>histórico de eventos filtrado apenas para críticos</span></li><li><strong>{data.fuel.every((item) => item.reportedLiters === 0) ? "n/d" : "ok"}</strong><span>combustível validado</span></li><li><strong>{data.maintenanceAvailable ? "sim" : "não"}</strong><span>manutenção detalhada na origem</span></li></ul><p className="mutedCopy">O Pulso não preenche dias ausentes, não inventa economia, não transforma ausência em zero e não reconstrói série diária a partir de médias Hyster.</p></article></section><article className="surfaceCard"><h3>Fontes da operação</h3><div className="sourceList">{data.sources.map((source) => <details key={source.sha256}><summary>{source.file}</summary><code>{source.sha256}</code><p>{source.sheets.map((sheet) => `${sheet.name} · ${sheet.rows} linhas${sheet.range ? ` · ${sheet.range}` : ""}`).join(" · ")}</p></details>)}</div></article><article className="surfaceCard"><h3>Dados complementares e apontamentos</h3><p>Planejamento, parada, combustível, custo e produção inseridos pela gestão continuam locais neste navegador.</p><OperationsConsole tab="inputs" workspace={workspace} data={data} save={save} busy={busy} /></article></section>}
   </main>;
 }
