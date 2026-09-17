@@ -16,6 +16,9 @@ export type OperationalContext = {
     workPct: number | null;
     idlePct: number | null;
     waitPct: number | null;
+    sourceWorkPct?: number | null;
+    sourceIdlePct?: number | null;
+    sourceWaitPctOfIdle?: number | null;
   };
   aggregateTelemetry?: {
     granularity: "asset-period";
@@ -26,13 +29,21 @@ export type OperationalContext = {
     metrics: WorkforceMetrics;
     ratios: {
       hydraulicPct: number | null;
+      auxiliaryHydraulicPct: number | null;
       motionPct: number | null;
       liftPct: number | null;
       lowerPct: number | null;
+      lowSpeedPct: number | null;
+      mediumSpeedPct: number | null;
       highSpeedPct: number | null;
+      lowOverspeedPct: number | null;
+      highOverspeedPct: number | null;
       marchPct: number | null;
       forwardSharePct: number | null;
       reverseSharePct: number | null;
+      seatBeltViolationPct: number | null;
+      ladenPct: number | null;
+      unladenPct: number | null;
     };
     caveat: string;
   };
@@ -41,6 +52,7 @@ export type OperationalContext = {
     impacts: number;
     total: number;
     byType: { type: string; count: number }[];
+    criticalOnly: boolean;
   };
   management: {
     granularity: "workspace-current";
@@ -64,6 +76,8 @@ export type OperationalContext = {
     downtime: boolean;
     maintenanceDetail: boolean;
     aggregateTelemetry: boolean;
+    loadTelemetry: boolean;
+    fuelTelemetry: boolean;
   };
   limitations: string[];
 };
@@ -112,6 +126,9 @@ function aggregateTelemetry(data: HysterData, assetId: string): OperationalConte
   const marchHours = metrics.forwardHours != null && metrics.reverseHours != null
     ? metrics.forwardHours + metrics.reverseHours
     : undefined;
+  const loadHours = metrics.ladenHours != null && metrics.unladenHours != null
+    ? metrics.ladenHours + metrics.unladenHours
+    : undefined;
 
   return {
     granularity: "asset-period",
@@ -122,15 +139,23 @@ function aggregateTelemetry(data: HysterData, assetId: string): OperationalConte
     metrics,
     ratios: {
       hydraulicPct: ratio(metrics.hydraulicHours, metrics.keyHours),
+      auxiliaryHydraulicPct: ratio(metrics.auxiliaryHydraulicHours, metrics.keyHours),
       motionPct: ratio(metrics.motionHours, metrics.keyHours),
       liftPct: ratio(metrics.liftHours, metrics.keyHours),
       lowerPct: ratio(metrics.lowerHours, metrics.keyHours),
+      lowSpeedPct: ratio(metrics.lowSpeedHours, metrics.keyHours),
+      mediumSpeedPct: ratio(metrics.mediumSpeedHours, metrics.keyHours),
       highSpeedPct: ratio(metrics.highSpeedHours, metrics.keyHours),
+      lowOverspeedPct: ratio(metrics.lowLevelOverspeedHours, metrics.keyHours),
+      highOverspeedPct: ratio(metrics.highLevelOverspeedHours, metrics.keyHours),
       marchPct: ratio(marchHours, metrics.keyHours),
       forwardSharePct: ratio(metrics.forwardHours, marchHours),
-      reverseSharePct: ratio(metrics.reverseHours, marchHours)
+      reverseSharePct: ratio(metrics.reverseHours, marchHours),
+      seatBeltViolationPct: ratio(metrics.seatBeltViolationHours, metrics.keyHours),
+      ladenPct: ratio(metrics.ladenHours, loadHours),
+      unladenPct: ratio(metrics.unladenHours, loadHours)
     },
-    caveat: "Indicadores de movimento, hidráulica, elevação e marcha são agregados do período informado; não representam necessariamente o dia do insight e não devem ser rateados artificialmente."
+    caveat: "Indicadores de movimento, hidráulica, velocidade, overspeed, carga e marcha são agregados do período Workforce informado; não representam necessariamente o dia do insight e não devem ser rateados artificialmente."
   };
 }
 
@@ -142,7 +167,8 @@ function eventContext(data: HysterData, assetId: string, date: string): Operatio
     faults: events.filter((event) => event.type === "Falha do sistema").length,
     impacts: events.filter((event) => event.type === "Impacto").length,
     total: events.length,
-    byType: [...counts.entries()].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count || a.type.localeCompare(b.type)).slice(0, 20)
+    byType: [...counts.entries()].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count || a.type.localeCompare(b.type)).slice(0, 20),
+    criticalOnly: data.dataQuality?.eventExportCriticalOnly === true
   };
 }
 
@@ -177,14 +203,19 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
   const aggregate = aggregateTelemetry(data, insight.assetId);
   const events = eventContext(data, insight.assetId, insight.date);
   const management = managementContext(insight.assetId, insight.date, orders, inputs);
+  const loadAvailable = !!aggregate && (aggregate.metrics.ladenHours ?? 0) + (aggregate.metrics.unladenHours ?? 0) > 0;
+  const fuelAvailable = data.fuel.some((item) => item.assetId === insight.assetId && item.reportedLiters > 0);
   const limitations: string[] = [
     "O contexto organiza evidências disponíveis; não determina causa raiz, previsão de pane ou responsabilidade individual.",
     "Identidade e código de cartão não são enviados no contexto de interpretação da IA."
   ];
   if (aggregate) limitations.push(aggregate.caveat);
-  else limitations.push("Não há indicadores agregados de hidráulica, movimento, elevação ou marcha para este equipamento.");
+  else limitations.push("Não há indicadores agregados de hidráulica, movimento, velocidade, carga ou marcha para este equipamento.");
   if (management.sameDayInput?.production == null) limitations.push("Demanda/produção do dia não está disponível; baixa atividade pode refletir menor demanda e não pode ser classificada automaticamente como perda de produtividade.");
   if (!data.maintenanceAvailable) limitations.push("A origem não contém manutenção detalhada suficiente para confirmar diagnóstico técnico.");
+  if (events.criticalOnly) limitations.push("O histórico de eventos foi exportado com filtro Crítica = Sim; contagens de eventos não representam necessariamente todos os eventos ocorridos.");
+  if (!loadAvailable && data.workforce) limitations.push("Os indicadores de carga estão zerados ou indisponíveis neste período; não inferir operação carregada/descarregada.");
+  if (!fuelAvailable) limitations.push("Combustível/energia está zerado ou indisponível nesta base; não estimar consumo ou economia.");
 
   return {
     schemaVersion: "pulso-operational-context-v1",
@@ -199,7 +230,10 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
       waitHours: round(row.waitHours),
       workPct: ratio(row.workHours, row.keyHours),
       idlePct: ratio(row.idleHours, row.keyHours),
-      waitPct: ratio(row.waitHours, row.keyHours)
+      waitPct: ratio(row.waitHours, row.keyHours),
+      sourceWorkPct: row.workPercent ?? null,
+      sourceIdlePct: row.idlePercent ?? null,
+      sourceWaitPctOfIdle: row.waitPercentOfIdle ?? null
     },
     aggregateTelemetry: aggregate,
     events,
@@ -209,7 +243,9 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
       plannedHours: management.sameDayInput?.plannedHours != null,
       downtime: management.sameDayInput?.downtimeHours != null,
       maintenanceDetail: data.maintenanceAvailable,
-      aggregateTelemetry: !!aggregate
+      aggregateTelemetry: !!aggregate,
+      loadTelemetry: loadAvailable,
+      fuelTelemetry: fuelAvailable
     },
     limitations
   };
@@ -221,7 +257,7 @@ export function validateOperationalContext(value: unknown): OperationalContext {
   if (context.schemaVersion !== "pulso-operational-context-v1" || !/^EP\d{2,6}$/.test(String(context.assetId)) || !validDate(context.date)) throw new Error("Identidade do contexto operacional inválida.");
 
   const daily = context.daily as Record<string, unknown> | undefined;
-  if (!daily || daily.granularity !== "asset-day" || ![daily.keyHours, daily.presenceHours, daily.workHours, daily.idleHours, daily.waitHours].every(finite) || ![daily.workPct, daily.idlePct, daily.waitPct].every(optionalFinite)) throw new Error("Contexto diário inválido.");
+  if (!daily || daily.granularity !== "asset-day" || ![daily.keyHours, daily.presenceHours, daily.workHours, daily.idleHours, daily.waitHours].every(finite) || ![daily.workPct, daily.idlePct, daily.waitPct, daily.sourceWorkPct, daily.sourceIdlePct, daily.sourceWaitPctOfIdle].every(optionalFinite)) throw new Error("Contexto diário inválido.");
 
   if (context.aggregateTelemetry !== undefined) {
     const aggregate = context.aggregateTelemetry as Record<string, unknown>;
@@ -230,7 +266,7 @@ export function validateOperationalContext(value: unknown): OperationalContext {
   }
 
   const events = context.events as Record<string, unknown> | undefined;
-  if (!events || ![events.faults, events.impacts, events.total].every((item) => Number.isInteger(item) && Number(item) >= 0) || !Array.isArray(events.byType) || events.byType.length > 20 || events.byType.some((item) => !item || typeof item !== "object" || typeof (item as Record<string, unknown>).type !== "string" || !Number.isInteger((item as Record<string, unknown>).count))) throw new Error("Contexto de eventos inválido.");
+  if (!events || ![events.faults, events.impacts, events.total].every((item) => Number.isInteger(item) && Number(item) >= 0) || typeof events.criticalOnly !== "boolean" || !Array.isArray(events.byType) || events.byType.length > 20 || events.byType.some((item) => !item || typeof item !== "object" || typeof (item as Record<string, unknown>).type !== "string" || !Number.isInteger((item as Record<string, unknown>).count))) throw new Error("Contexto de eventos inválido.");
 
   const management = context.management as Record<string, unknown> | undefined;
   if (!management || management.granularity !== "workspace-current" || ![management.openOrders, management.inProgressOrders, management.completedOrders].every((item) => Number.isInteger(item) && Number(item) >= 0) || !(management.latestCompletedAt === null || validDate(management.latestCompletedAt))) throw new Error("Contexto de gestão inválido.");
@@ -240,8 +276,8 @@ export function validateOperationalContext(value: unknown): OperationalContext {
   }
 
   const availability = context.availability as Record<string, unknown> | undefined;
-  if (!availability || ![availability.demandOrProduction, availability.plannedHours, availability.downtime, availability.maintenanceDetail, availability.aggregateTelemetry].every((item) => typeof item === "boolean")) throw new Error("Disponibilidade do contexto inválida.");
-  if (!Array.isArray(context.limitations) || context.limitations.length > 12 || context.limitations.some((item) => typeof item !== "string" || item.length > 500)) throw new Error("Limitações do contexto inválidas.");
+  if (!availability || ![availability.demandOrProduction, availability.plannedHours, availability.downtime, availability.maintenanceDetail, availability.aggregateTelemetry, availability.loadTelemetry, availability.fuelTelemetry].every((item) => typeof item === "boolean")) throw new Error("Disponibilidade do contexto inválida.");
+  if (!Array.isArray(context.limitations) || context.limitations.length > 16 || context.limitations.some((item) => typeof item !== "string" || item.length > 500)) throw new Error("Limitações do contexto inválidas.");
 
   // Defense in depth: the model context must never contain operator/card identity fields.
   const serialized = JSON.stringify(value).toLowerCase();
