@@ -57,9 +57,9 @@ function plainFacts(insight: OperationalAIInsight | OperationalExplanationPacket
   const work = insight.evidence.find((item) => item.metric === "workPct" && item.zScore < 0);
   const faults = insight.relatedEvents.faults;
   const impacts = insight.relatedEvents.impacts;
-  if (idle) facts.push(`ociosidade em ${idle.current}% contra ${idle.mean}% no histórico comparável`);
-  if (wait) facts.push(`espera em ${wait.current}% contra ${wait.mean}% no histórico comparável`);
-  if (work) facts.push(`trabalho em ${work.current}% contra ${work.mean}% no histórico comparável`);
+  if (idle) facts.push(`tempo ocioso em ${Math.round(idle.current)}% contra ${Math.round(idle.mean)}% no histórico`);
+  if (wait) facts.push(`espera em ${Math.round(wait.current)}% contra ${Math.round(wait.mean)}% no histórico`);
+  if (work) facts.push(`trabalho em ${Math.round(work.current)}% contra ${Math.round(work.mean)}% no histórico`);
   if (impacts) facts.push(`${impacts} impacto(s) registrado(s)`);
   if (faults) facts.push(`${faults} registro(s) de falha`);
   return facts;
@@ -70,14 +70,14 @@ function contextSentence(packet: OperationalAIInsight | OperationalExplanationPa
   const context = packet.context;
   const pieces: string[] = [];
   const aggregate = context.aggregateTelemetry;
-  if (aggregate?.ratios.hydraulicPct != null) pieces.push(`hidráulica ${aggregate.ratios.hydraulicPct}% da chave`);
-  if (aggregate?.ratios.motionPct != null) pieces.push(`movimento ${aggregate.ratios.motionPct}% da chave`);
-  if (aggregate?.ratios.marchPct != null) pieces.push(`marcha ${aggregate.ratios.marchPct}% da chave`);
+  if (aggregate?.ratios.hydraulicPct != null) pieces.push(`hidráulica ${Math.round(aggregate.ratios.hydraulicPct)}% da chave`);
+  if (aggregate?.ratios.motionPct != null) pieces.push(`movimento ${Math.round(aggregate.ratios.motionPct)}% da chave`);
+  if (aggregate?.ratios.marchPct != null) pieces.push(`marcha ${Math.round(aggregate.ratios.marchPct)}% da chave`);
   const input = context.management.sameDayInput;
-  if (input?.production != null) pieces.push(`produção apontada no dia ${input.production} ${input.productionUnit}`);
+  if (input?.production != null) pieces.push(`produção apontada no dia ${Math.round(input.production)} ${input.productionUnit}`);
   if (!pieces.length) return "";
   const aggregateLabel = aggregate ? ` No agregado disponível de ${aggregate.periodStart} a ${aggregate.periodEnd}, ${pieces.filter((item) => !item.startsWith("produção")).join(", ")}.` : "";
-  const dailyLabel = input?.production != null ? ` No mesmo dia, houve apontamento de produção de ${input.production} ${input.productionUnit}.` : "";
+  const dailyLabel = input?.production != null ? ` No mesmo dia, houve apontamento de produção de ${Math.round(input.production)} ${input.productionUnit}.` : "";
   return `${aggregateLabel}${dailyLabel}`;
 }
 
