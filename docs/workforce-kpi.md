@@ -1,97 +1,123 @@
 # Indicadores por cartão no Pulso
 
-Este documento descreve o contrato e os limites dos indicadores por cartão incorporados à **mesma base operacional** do Pulso. Dados reais e arquivos XLSX/JSON permanecem fora do repositório público.
+O `Workforce KPI Report` integra a **mesma base operacional** do Pulso. A experiência continua:
 
-## Escopo
+`relatórios Hyster → 1 JSON operacional → Pulso → análise e contexto`
 
-O relatório Workforce KPI é uma das fontes usadas para construir o pacote operacional único. Para o usuário não existe uma segunda base nem uma segunda importação.
+## Identidade e privacidade
 
-A experiência é:
+O Pulso preserva o **código do cartão como texto**. O nome do operador mostrado no XLSX não é persistido pelo importador v4.
 
-`relatórios atuais → 1 JSON operacional → Pulso → todos os insights`
-
-A fonte é validada antes da conversão:
-
-- abas esperadas: `Main Page` e `Workforce KPI Report`;
-- agrupamento de origem: `Operator`;
-- unidade: `Metric`;
-- período deve coincidir com o lote operacional preparado;
-- cada contador importado vem da coluna **Total Usage**;
-- linhas pai representam o cartão no período;
-- linhas filhas por equipamento ficam aninhadas no cartão e não são novos totais.
-
-Para a amostra atual, o período é **01/06/2026 a 31/08/2026**.
-
-## Privacidade e identidade do cartão
-
-O Pulso não persiste o nome exibido pelo relatório. Do texto da linha pai, somente o código do cartão é extraído.
-
-Regras:
-
-- código é tratado como **texto**, nunca como número;
-- zeros à esquerda presentes na fonte são preservados;
-- o Pulso não acrescenta ou remove zeros para tentar conciliar outra fonte;
-- linha sem código extraível fica com `cardCode: null` e `cardQuality: incomplete`;
-- código repetido fica com `cardQuality: ambiguous` e não é agregado automaticamente;
-- linhas filhas mantêm somente o identificador sanitizado do equipamento (`EPxx`).
-
-`AssetOperatingHistory` pode trazer cartão armazenado como valor numérico. Nesse caso, a exportação não permite reconstruir zeros à esquerda ausentes. O cruzamento usa igualdade textual exata; equivalências aproximadas não são inferidas.
-
-## Métricas do schema v3
-
-Quando presentes na fonte, a seção interna `workforce` pode conter:
-
-- usos (`usageCount`);
-- medidor principal;
-- tempo de motor/tração;
-- medidor hidráulico;
-- medidor de tração;
-- distância (km);
-- tempo monitorado;
-- chave ligada;
-- presença;
-- movimento;
-- função hidráulica;
-- trabalho;
-- elevação;
-- descida;
-- alta velocidade;
-- marcha ré;
-- marcha à frente;
-- ociosidade.
-
-O nome interno `workforce` é apenas uma decisão de compatibilidade do contrato atual. Na interface, tratar como **indicadores por cartão**.
-
-Campo ausente continua ausente. Zero informado pela origem permanece zero. O importador não cria estimativas para indicadores não fornecidos.
+- zeros à esquerda existentes na fonte são preservados;
+- o Pulso não inventa padding para conciliar outra fonte;
+- cartão sem código extraível fica `cardCode: null` e `cardQuality: incomplete`;
+- código repetido vira `cardQuality: ambiguous` e não é agregado automaticamente;
+- associação cartão-evento fornece contexto, não autoria, responsabilidade ou causa.
 
 ## Granularidade
 
-A granularidade é **cartão-período** (`card-period`).
+A granularidade do Workforce é `card-period`.
 
-Por isso:
+Existem dois níveis preservados:
 
-- totais do período não são distribuídos artificialmente por mês ou dia;
-- filtros mensais continuam válidos para séries diárias e eventos;
-- contadores por cartão permanecem identificados pelo período completo da fonte;
-- evolução mensal de um cartão pode mostrar eventos reais por mês, mas não converte total trimestral de horas/distância em série temporal.
+1. cartão × período;
+2. cartão × equipamento × período.
 
-## Cruzamento com eventos, ordens e pós-ação
+Filtros diários/mensais não rateiam esses números. O Pulso só mostra o total ou as médias que a própria Hyster reportou para o intervalo original.
 
-O código do cartão pode contextualizar eventos do `AssetOperatingHistory`. A associação não prova autoria, responsabilidade ou causa.
+## Médias nativas
 
-O Pulso:
+Cada família pode conter:
 
-1. mostra o perfil de uso do cartão no período;
-2. mostra equipamentos presentes nas linhas filhas da fonte;
-3. cruza o código exatamente com o ledger de eventos;
-4. mostra ordens dos equipamentos relacionados;
-5. mantém o acompanhamento antes/depois baseado na série diária do equipamento.
+```json
+{
+  "metrics": {
+    "distanceKm": 46.7
+  },
+  "statistics": {
+    "distanceKm": {
+      "sourceLabel": "Odometer",
+      "unit": "km",
+      "dailyAverage": 0.8,
+      "monthlyAverage": 15.6,
+      "total": 46.7
+    }
+  }
+}
+```
 
-Nenhuma ordem é criada automaticamente por associação de cartão.
+`dailyAverage` e `monthlyAverage` são valores calculados/reportados pelo Hyster Tracker. O Pulso não conhece o denominador interno usado pelo fornecedor e **não transforma essas médias em linhas fictícias por dia ou mês**.
 
-## Importação única
+## 29 famílias de métricas do schema v4
 
-Exemplo de geração do pacote atual:
+- `serviceHours` — medidor principal;
+- `driveHours` — motor/tração;
+- `hydraulicMeterHours` — medidor hidráulico;
+- `tractionMeterHours` — transmissão/tração;
+- `distanceKm` — distância;
+- `monitoredHours` — duração monitorada;
+- `keyHours` — chave ligada;
+- `presenceHours` — presença;
+- `motionHours` — movimento;
+- `hydraulicHours` — função hidráulica;
+- `workHours` — trabalho;
+- `liftHours` — elevação;
+- `lowerHours` — descida;
+- `auxiliaryHydraulicHours` — hidráulica auxiliar;
+- `lowSpeedHours` — baixa velocidade;
+- `mediumSpeedHours` — média velocidade;
+- `highSpeedHours` — alta velocidade;
+- `lowLevelOverspeedHours` — overspeed nível baixo;
+- `highLevelOverspeedHours` — overspeed nível alto;
+- `reverseHours` — ré;
+- `forwardHours` — frente;
+- `seatBeltViolationHours` — violação de cinto;
+- `idleHours` — ociosidade;
+- `containerCount` — contêineres;
+- `energyFuelUsedLiters` — energia/combustível;
+- `ladenHours` — carregado;
+- `unladenHours` — descarregado;
+- `workingUnladenHours` — trabalho descarregado;
+- `unladenDurationHours` — duração descarregado.
+
+Campo suportado pela fonte mas zerado continua zero. Campo ausente permanece ausente.
+
+## Disponibilidade de métricas
+
+`metricAvailability` registra para cada família:
+
+- label de origem;
+- unidade;
+- quantidade de cartões com valor diferente de zero;
+- quantidade total de cartões;
+- total somado entre cartões pai.
+
+Isso permite que o Pulso diga “métrica disponível, mas zerada neste período” em vez de tratá-la como inexistente.
+
+## Uso na interface
+
+No contexto de um cartão, a visão pode mostrar:
+
+- total do período;
+- média diária Hyster;
+- média mensal Hyster;
+- distância;
+- trabalho/ociosidade;
+- perfil de velocidade e overspeed;
+- hidráulica e hidráulica auxiliar;
+- frente/ré;
+- carga/descarregado;
+- sinais de segurança quando disponíveis.
+
+Nenhuma dessas métricas gera ranking disciplinar de pessoas.
+
+## Uso pela IA
+
+O motor de anomalia diária não mistura `card-period` com `asset-day`. Métricas Workforce entram no Operational Context Engine apenas como contexto agregado do equipamento/período.
+
+A camada enviada para interpretação por IA remove identidade de cartão/operador e inclui caveats explícitos de granularidade. Isso permite usar velocidade, overspeed, hidráulica ou carga para enriquecer hipóteses sem alegar que a métrica ocorreu no mesmo dia do insight.
+
+## Importação
 
 ```bash
 python scripts/import_hyster.py /caminho/exports \
@@ -99,28 +125,6 @@ python scripts/import_hyster.py /caminho/exports \
   --output .data/Pulso-base-operacao.json
 ```
 
-Depois o usuário importa somente `Pulso-base-operacao.json` no Pulso.
+O importador valida o layout esperado, as 29 famílias e seus blocos de três colunas (`Daily Averages`, `Monthly Averages`, `Total Usage`). Alteração inesperada de layout falha explicitamente em vez de deslocar colunas silenciosamente.
 
-## Dados reais × demonstração sintética
-
-Existem apenas dois contextos de execução:
-
-- **operação real atual:** pacote operacional com período explícito;
-- **demonstração sintética:** ambiente separado, que não alimenta a operação real.
-
-O dashboard antigo usado na etapa de descoberta não é uma base do produto, não é importado e não aparece na interface.
-
-## Persistência nesta etapa
-
-A persistência continua local ao navegador (IndexedDB), com backup/restauração. Não iniciar backend nesta etapa.
-
-Para uso compartilhado futuro ainda será necessário implementar, separadamente:
-
-- autenticação e autorização;
-- banco persistente com isolamento por operação;
-- versionamento e auditoria;
-- controle de concorrência;
-- sincronização multiusuário;
-- backup central;
-- política de retenção;
-- gestão de segredos e observabilidade.
+Dados reais e arquivos XLSX/JSON permanecem fora do repositório público.
