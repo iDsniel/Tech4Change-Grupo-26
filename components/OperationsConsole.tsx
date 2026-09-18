@@ -76,7 +76,8 @@ export default function OperationsConsole({ tab, data, workspace, save, busy, su
         fuelUnit: String(fields.get("fuelUnit")) as "L" | "kg",
         costBRL: number("costBRL"),
         production: number("production"),
-        productionUnit: String(fields.get("productionUnit")) as "t" | "movimentos",
+        productionUnit: String(fields.get("productionUnit")) as "t" | "movimentos" | "pallets",
+        usageContext: String(fields.get("usageContext") || "unknown") as DailyInput["usageContext"],
         note: String(fields.get("note"))
       });
       if (workspace.inputs.some(r => r.assetId === row.assetId && r.date === row.date && r.id !== row.id)) throw new Error("Já existe um apontamento para esse equipamento/dia. Use Editar.");
@@ -150,7 +151,8 @@ export default function OperationsConsole({ tab, data, workspace, save, busy, su
           <label>Dia<input type="date" name="date" required defaultValue={editing?.date} /></label>
           {[["plannedHours", "Horas planejadas"], ["downtimeHours", "Horas de parada no período planejado"], ["fuelQuantity", "Quantidade abastecida"], ["costBRL", "Custo realizado (R$)"], ["production", "Volume produzido / movimentado"]].map(([name, label]) => <label key={name}>{label}<input name={name} type="number" min="0" step="0.01" defaultValue={editing?.[name as keyof DailyInput] as number ?? ""} /></label>)}
           <label>Unidade do combustível<select name="fuelUnit" defaultValue={editing?.fuelUnit ?? "L"}><option>L</option><option>kg</option></select></label>
-          <label>Unidade da produção<select name="productionUnit" defaultValue={editing?.productionUnit ?? "t"}><option>t</option><option>movimentos</option></select></label>
+          <label>Unidade da produção<select name="productionUnit" defaultValue={editing?.productionUnit ?? "pallets"}><option value="pallets">pallets</option><option value="t">t</option><option value="movimentos">movimentos</option></select></label>
+          <label>Contexto do uso<select name="usageContext" defaultValue={editing?.usageContext ?? "unknown"}><option value="unknown">Não informado</option><option value="production">Produção / movimentação</option><option value="maintenance">Manutenção</option><option value="mixed">Misto</option></select></label>
           <label className="opsWide">Fonte / observação<textarea name="note" defaultValue={editing?.note} maxLength={2000} /></label>
           <button disabled={busy}>{editing ? "Salvar alteração" : "Registrar apontamento"}</button>
           {editing && <button type="button" onClick={() => setEditing(null)}>Cancelar edição</button>}
@@ -160,8 +162,8 @@ export default function OperationsConsole({ tab, data, workspace, save, busy, su
         <h2>Indicadores complementares</h2>
         {filters}
         <p>Disponibilidade nos {summary.covered} equipamento-dias com planejamento e parada informados: <strong>{f(summary.availability, "%")}</strong>. Não representa dias sem apontamento.</p>
-        <p>Abastecimentos informados: {f(summary.fuelL)} L e {f(summary.fuelKg)} kg · Custos informados: R$ {f(summary.cost)} · Produção informada: {f(summary.tonnes)} t e {f(summary.movements)} movimentos.</p>
-        <div className="hysterTable"><table><thead><tr><th>Dia</th><th>Ativo</th><th>Planejado</th><th>Parada</th><th>Abastecimento</th><th>Custo R$</th><th>Produção</th><th>Ação</th></tr></thead><tbody>{[...rows].sort((a, b) => b.date.localeCompare(a.date)).map(r => <tr key={r.id}><td>{r.date}</td><td>{r.assetId}</td><td>{f(r.plannedHours, " h")}</td><td>{f(r.downtimeHours, " h")}</td><td>{f(r.fuelQuantity, ` ${r.fuelUnit}`)}</td><td>{f(r.costBRL)}</td><td>{f(r.production, ` ${r.productionUnit}`)}</td><td><button onClick={() => setEditing(r)}>Editar</button></td></tr>)}</tbody></table></div>
+        <p>Abastecimentos informados: {f(summary.fuelL)} L e {f(summary.fuelKg)} kg · Custos informados: R$ {f(summary.cost)} · Produção informada: {f(summary.pallets)} pallets, {f(summary.tonnes)} t e {f(summary.movements)} movimentos.</p>
+        <div className="hysterTable"><table><thead><tr><th>Dia</th><th>Ativo</th><th>Planejado</th><th>Parada</th><th>Abastecimento</th><th>Custo R$</th><th>Produção</th><th>Contexto</th><th>Ação</th></tr></thead><tbody>{[...rows].sort((a, b) => b.date.localeCompare(a.date)).map(r => <tr key={r.id}><td>{r.date}</td><td>{r.assetId}</td><td>{f(r.plannedHours, " h")}</td><td>{f(r.downtimeHours, " h")}</td><td>{f(r.fuelQuantity, ` ${r.fuelUnit}`)}</td><td>{f(r.costBRL)}</td><td>{f(r.production, ` ${r.productionUnit}`)}</td><td>{r.usageContext === "maintenance" ? "Manutenção" : r.usageContext === "production" ? "Produção" : r.usageContext === "mixed" ? "Misto" : "Não informado"}</td><td><button onClick={() => setEditing(r)}>Editar</button></td></tr>)}</tbody></table></div>
       </section>
     </>;
   }
