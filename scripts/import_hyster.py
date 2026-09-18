@@ -1,4 +1,4 @@
-"""Consolida exportações atuais do Hyster Tracker no contrato operacional Pulso v4.
+"""Consolida exportações atuais do Hyster Tracker no contrato operacional Pulso v5.
 
 Uso:
   python scripts/import_hyster.py /caminho/exports \
