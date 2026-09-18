@@ -219,17 +219,19 @@ export default function KoneDemoDashboard() {
   }, [data, asset, filteredRecords, filteredInsights]);
 
   const currentAsset = fleetRows.find((item) => item.assetId === selectedAsset) ?? fleetRows[0];
-  const currentInsight = filteredInsights.find((item) => item.id === selectedInsightId)
-    ?? filteredInsights.find((item) => item.assetId === currentAsset?.assetId)
-    ?? filteredInsights[0];
+  const currentInsight = currentAsset
+    ? filteredInsights.find((item) => item.id === selectedInsightId && item.assetId === currentAsset.assetId)
+      ?? filteredInsights.find((item) => item.assetId === currentAsset.assetId)
+    : filteredInsights.find((item) => item.id === selectedInsightId) ?? filteredInsights[0];
 
   useEffect(() => {
     if (!currentAsset && fleetRows[0]) setSelectedAsset(fleetRows[0].assetId);
   }, [currentAsset, fleetRows]);
 
   useEffect(() => {
-    if (currentInsight) setSelectedInsightId(currentInsight.id);
-  }, [currentAsset?.assetId]);
+    const firstForAsset = currentAsset ? filteredInsights.find((item) => item.assetId === currentAsset.assetId) : filteredInsights[0];
+    setSelectedInsightId(firstForAsset?.id);
+  }, [currentAsset?.assetId, dateFrom, dateTo, shift]);
 
   useEffect(() => {
     if (!currentInsight) {
@@ -383,7 +385,7 @@ export default function KoneDemoDashboard() {
               <button className={assistMode === "safety" ? "active" : ""} type="button" onClick={() => setAssistMode("safety")}>Segurança</button>
               <button className={assistMode === "maintenance" ? "active" : ""} type="button" onClick={() => setAssistMode("maintenance")}>Manutenção</button>
             </div>
-            <article className="copilotReading"><span>Leitura operacional</span><p>{generated || assistantCopy()}</p></article>
+            <article className="copilotReading"><span>Leitura operacional</span><p>{assistMode === "summary" && generated ? generated : assistantCopy()}</p></article>
             {currentAsset && <div className="copilotFacts">
               <div><span>Carga</span><strong>{fmt(currentAsset.summary.totalLoadLiftedT)} t</strong></div>
               <div><span>Produtividade</span><strong>{fmt(currentAsset.summary.tonnesPerDrivingHour, 1)} t/h</strong></div>
