@@ -54,7 +54,7 @@ function orientation(insight: OperationalAIInsight) {
 
 export default function OperationalAIPanel({ data, assetFilter = "all", cardFilter = "all", dateFrom, dateTo, initialInsightId, orders = [], inputs = [], onRegisterAction }: Props) {
   const analysis = useMemo(() => analyzeOperationalAI(data), [data]);
-  const workforceProfiles = useMemo(() => analyzeWorkforceProfiles(data, cardFilter === "all" ? undefined : cardFilter), [data, cardFilter]);
+  const workforceProfiles = useMemo(() => analyzeWorkforceProfiles(data, cardFilter === "all" ? undefined : cardFilter, dateFrom, dateTo), [data, cardFilter, dateFrom, dateTo]);
   const filtered = useMemo(() => analysis.insights.filter((insight) =>
     between(insight.date, dateFrom, dateTo) &&
     (assetFilter === "all" || insight.assetId === assetFilter) &&
