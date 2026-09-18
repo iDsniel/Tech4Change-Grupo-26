@@ -38,7 +38,7 @@ function fixture(): HysterData {
   };
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 5,
     provider: "Hyster Tracker",
     periodStart: "2026-06-01",
     periodEnd: "2026-06-30",
@@ -58,11 +58,18 @@ function fixture(): HysterData {
     workforce: {
       periodStart: "2026-06-01",
       periodEnd: "2026-06-30",
-      granularity: "card-period",
+      granularity: "card-month",
       unitSystem: "metric",
-      sourceFile: "workforce.xlsx",
-      sha256: "b".repeat(64),
-      cards: [{ cardCode: "000845", cardQuality: "complete", usageCount: 1, metrics: workforceMetrics, assets: [{ assetId: "EP01", usageCount: 1, metrics: workforceMetrics, sourceRow: 4 }], sourceRow: 3 }],
+      cards: [],
+      periods: [{
+        periodStart: "2026-06-01",
+        periodEnd: "2026-06-30",
+        granularity: "card-month",
+        sourceFile: "workforce-jun.xlsx",
+        sha256: "b".repeat(64),
+        cards: [{ cardCode: "000845", cardQuality: "complete", usageCount: 1, metrics: workforceMetrics, assets: [{ assetId: "EP01", usageCount: 1, metrics: workforceMetrics, sourceRow: 4 }], sourceRow: 3 }],
+        warnings: []
+      }],
       warnings: []
     }
   };
@@ -102,11 +109,13 @@ test("Operational Context Engine adds scoped telemetry without operator identity
   assert.equal(validated.daily.workPct, 37.5);
   assert.equal(validated.events.impacts, 1);
   assert.equal(validated.events.faults, 6);
-  assert.equal(validated.aggregateTelemetry?.granularity, "asset-period");
+  assert.equal(validated.aggregateTelemetry?.granularity, "asset-month");
   assert.equal(validated.aggregateTelemetry?.ratios.hydraulicPct, 40);
   assert.equal(validated.aggregateTelemetry?.ratios.motionPct, 60);
   assert.equal(validated.aggregateTelemetry?.ratios.marchPct, 60);
   assert.equal(validated.aggregateTelemetry?.ratios.forwardSharePct, 58.33);
+  assert.equal(validated.aggregateTelemetry?.periodStart, "2026-06-01");
+  assert.equal(validated.aggregateTelemetry?.periodEnd, "2026-06-30");
   assert.equal(validated.availability.demandOrProduction, false);
   const serialized = JSON.stringify(validated);
   assert.equal(serialized.includes("000845"), false);

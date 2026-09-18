@@ -1,13 +1,13 @@
-"""Consolida exportações atuais do Hyster Tracker no contrato operacional Pulso v4.
+"""Consolida exportações atuais do Hyster Tracker no contrato operacional Pulso v5.
 
 Uso:
   python scripts/import_hyster.py /caminho/exports \
-    --workforce /caminho/workforceKPITier7.xlsx \
+    --workforce /caminho/workforceKPITier7-jun.xlsx /caminho/workforceKPITier7-jul.xlsx /caminho/workforceKPITier7-ago.xlsx \
     --output .data/Pulso-base-operacao.json
 
-O importador preserva o grão original de cada fonte. Médias diárias/mensais do
-Workforce continuam médias reportadas pela Hyster e nunca são transformadas em
-uma série card-day artificial. O código do cartão é preservado; nomes de
+O importador preserva o grão original de cada fonte. Cada exportação Workforce
+é mantida como cartão-mês/equipamento-mês. Médias diárias/mensais continuam
+reportadas pela Hyster e nunca são transformadas em série card-day artificial. O código do cartão é preservado; nomes de
 operadores não são persistidos no pacote operacional.
 """
 import argparse
@@ -34,8 +34,11 @@ FILES = [
     "costOfOperationTier7",
 ]
 
-MONTHS = {name: i for i, name in enumerate(
-    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+MONTHS = {
+    "JAN": 1, "FEB": 2, "FEV": 2, "MAR": 3, "APR": 4, "ABR": 4,
+    "MAY": 5, "MAI": 5, "JUN": 6, "JUL": 7, "AUG": 8, "AGO": 8,
+    "SEP": 9, "SET": 9, "OCT": 10, "OUT": 10, "NOV": 11, "DEC": 12, "DEZ": 12,
+}
 
 # Workforce: colunas zero-based (daily, monthly, total) começam em 3 e avançam 3.
 WORKFORCE_METRICS = [
@@ -235,30 +238,37 @@ def workforce_values(row):
     return metrics, statistics
 
 
-def convert_workforce(path, product_meta, expected_start, expected_end):
+def convert_workforce_month(path, product_meta, analysis_start, analysis_end):
     book = openpyxl.load_workbook(path, data_only=True, read_only=True)
     try:
-        required = {"Main Page", "Workforce KPI Report"}
-        if not required.issubset(book.sheetnames):
+        main_name = next((name for name in ("Main Page", "Principal página") if name in book.sheetnames), None)
+        report_name = next((name for name in ("Workforce KPI Report", "Relatório KPI de força de traba") if name in book.sheetnames), None)
+        if not main_name or not report_name:
             raise ValueError("Unsupported Workforce KPI workbook: required sheets not found")
-        main = book["Main Page"]
-        report = book["Workforce KPI Report"]
+        main = book[main_name]
+        report = book[report_name]
         start, end = parse_workforce_period(main.cell(13, 1).value)
-        if (start, end) != (expected_start, expected_end):
-            raise ValueError(f"Workforce KPI period {start}..{end} differs from Hyster period {expected_start}..{expected_end}")
-        if str(main.cell(15, 1).value).strip() != "Operator" or str(main.cell(19, 1).value).strip() != "Metric":
+        if start < analysis_start or end > analysis_end:
+            raise ValueError(f"Workforce KPI period {start}..{end} is outside Hyster period {analysis_start}..{analysis_end}")
+        if str(main.cell(15, 1).value).strip() != "Operator" or str(main.cell(19, 1).value).strip() not in {"Metric", "Métrica"}:
             raise ValueError("Unsupported Workforce KPI configuration")
 
-        for index, (_, expected_label, _) in enumerate(WORKFORCE_METRICS):
+        for index, (_, _, _) in enumerate(WORKFORCE_METRICS):
             start_col = 4 + index * 3
-            if report.cell(1, start_col).value != expected_label:
-                raise ValueError(f"Unsupported Workforce layout at column {start_col}: {report.cell(1, start_col).value!r}")
-            if not str(report.cell(2, start_col).value or "").startswith("Daily Averages"):
+            daily = str(report.cell(2, start_col).value or "").lower()
+            monthly = str(report.cell(2, start_col + 1).value or "").lower()
+            total = str(report.cell(2, start_col + 2).value or "").lower()
+            if not ("daily" in daily or "diária" in daily):
                 raise ValueError(f"Missing Workforce daily average at column {start_col}")
-            if not str(report.cell(2, start_col + 1).value or "").startswith("Monthly Averages"):
+            if not ("monthly" in monthly or "mensais" in monthly):
                 raise ValueError(f"Missing Workforce monthly average at column {start_col + 1}")
-            if not str(report.cell(2, start_col + 2).value or "").startswith("Total Usage"):
+            if not ("total" in total or "uso total" in total):
                 raise ValueError(f"Missing Workforce total at column {start_col + 2}")
+
+        source_labels = {
+            key: str(report.cell(1, 4 + index * 3).value or label)
+            for index, (key, label, _) in enumerate(WORKFORCE_METRICS)
+        }
 
         cards, current, by_code, warnings = [], None, {}, []
         for source_row, row in enumerate(report.iter_rows(min_row=3, values_only=True), 3):
@@ -266,11 +276,11 @@ def convert_workforce(path, product_meta, expected_start, expected_end):
             if label in (None, ""):
                 continue
             label = str(label)
-            if "Product ID :" in label:
+            if re.search(r"(?:Product ID|ID de produto)\s*:", label, re.IGNORECASE):
                 if current is None:
                     warnings.append(f"Linha {source_row}: equipamento sem cartão pai; registro ignorado")
                     continue
-                product_match = re.search(r"Product ID\s*:\s*(\d+)", label)
+                product_match = re.search(r"(?:Product ID|ID de produto)\s*:\s*(\d+)", label, re.IGNORECASE)
                 product_id = int(product_match.group(1)) if product_match else None
                 meta = product_meta.get(product_id)
                 if not meta:
@@ -282,13 +292,10 @@ def convert_workforce(path, product_meta, expected_start, expected_end):
                 if count is None or not float(count).is_integer():
                     raise ValueError(f"Invalid Workforce usage count at row {source_row}")
                 metrics, statistics = workforce_values(row)
+                for key, stat in statistics.items():
+                    stat["sourceLabel"] = source_labels.get(key, stat["sourceLabel"])
                 current["assets"].append({
                     "assetId": meta["assetId"],
-                    "productId": meta["productId"],
-                    "serialNumber": meta["serialNumber"],
-                    "trackerAssetId": meta["trackerAssetId"],
-                    "serviceId": meta["serviceId"],
-                    "equipmentName": meta["equipmentName"],
                     "usageCount": int(count),
                     "metrics": metrics,
                     "statistics": statistics,
@@ -309,6 +316,8 @@ def convert_workforce(path, product_meta, expected_start, expected_end):
             if count is None or not float(count).is_integer():
                 raise ValueError(f"Invalid Workforce usage count at row {source_row}")
             metrics, statistics = workforce_values(row)
+            for key, stat in statistics.items():
+                stat["sourceLabel"] = source_labels.get(key, stat["sourceLabel"])
             current = {
                 "cardCode": code,
                 "cardQuality": quality,
@@ -327,18 +336,18 @@ def convert_workforce(path, product_meta, expected_start, expected_end):
         if any(card["cardQuality"] == "incomplete" for card in cards):
             warnings.append("Há linhas de cartão sem código completo; elas permanecem sem identificação no contrato.")
         if any(card["cardQuality"] == "ambiguous" for card in cards):
-            warnings.append("Há códigos de cartão repetidos; as linhas foram sinalizadas como ambíguas e não devem ser agregadas automaticamente.")
+            warnings.append("Há códigos de cartão repetidos no mesmo mês; as linhas permanecem ambíguas.")
         warnings.extend([
             "Daily and monthly averages are source-reported and must not be interpreted as a real card-by-day time series.",
-            "Os totais por cartão permanecem na granularidade card-period e não são distribuídos artificialmente por mês ou dia.",
+            "Os totais são reais do mês exportado e não são distribuídos artificialmente por dia.",
             "Linhas filhas por equipamento ficam aninhadas no cartão e não são somadas novamente ao total do cartão.",
         ])
 
         availability = {}
-        for key, label, unit in WORKFORCE_METRICS:
+        for key, _, unit in WORKFORCE_METRICS:
             values = [card["metrics"].get(key, 0) for card in cards]
             availability[key] = {
-                "sourceLabel": label,
+                "sourceLabel": source_labels[key],
                 "unit": unit,
                 "cardsWithNonZero": sum(1 for value in values if value > 0),
                 "cardsTotal": len(cards),
@@ -348,8 +357,7 @@ def convert_workforce(path, product_meta, expected_start, expected_end):
         return ({
             "periodStart": start,
             "periodEnd": end,
-            "granularity": "card-period",
-            "unitSystem": "metric",
+            "granularity": "card-month",
             "sourceFile": path.name,
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "cards": cards,
@@ -358,6 +366,33 @@ def convert_workforce(path, product_meta, expected_start, expected_end):
         }, source_metadata(path, book))
     finally:
         book.close()
+
+
+def convert_workforce_months(paths, product_meta, analysis_start, analysis_end):
+    periods, sources = [], []
+    for path in paths:
+        period, source = convert_workforce_month(path, product_meta, analysis_start, analysis_end)
+        periods.append(period)
+        sources.append(source)
+    periods.sort(key=lambda item: item["periodStart"])
+    for previous, current in zip(periods, periods[1:]):
+        if previous["periodEnd"] >= current["periodStart"]:
+            raise ValueError("Workforce KPI monthly exports overlap")
+    if not periods:
+        raise ValueError("No Workforce KPI monthly exports were supplied")
+    return ({
+        "periodStart": periods[0]["periodStart"],
+        "periodEnd": periods[-1]["periodEnd"],
+        "granularity": "card-month",
+        "unitSystem": "metric",
+        "cards": [],
+        "periods": periods,
+        "warnings": [
+            "Os indicadores Workforce têm granularidade mensal real (cartão-mês e equipamento-mês).",
+            "Um total mensal pode contextualizar um insight ocorrido naquele mês, mas não representa necessariamente o mesmo dia.",
+            "Associação de cartão, equipamento e evento não comprova responsabilidade individual.",
+        ],
+    }, sources)
 
 
 def load_books(folder):
@@ -608,7 +643,7 @@ def convert(folder, workforce=None):
         by_asset_daily = Counter(item["assetId"] for item in daily)
 
         result = {
-            "schemaVersion": 4,
+            "schemaVersion": 5 if workforce else 4,
             "provider": "Hyster Tracker",
             "operationId": operation_id,
             "periodStart": period_start,
@@ -668,17 +703,23 @@ def convert(folder, workforce=None):
         }
 
         if workforce:
-            result["workforce"], workforce_source = convert_workforce(workforce, product_meta, period_start, period_end)
-            result["sources"].append(workforce_source)
-            availability = result["workforce"]["metricAvailability"]
-            result["dataQuality"]["workforceMetricAvailability"] = availability
-            result["dataQuality"]["workforceMetricsAllZero"] = [key for key, value in availability.items() if value["cardsWithNonZero"] == 0]
+            result["workforce"], workforce_sources = convert_workforce_months(workforce, product_meta, period_start, period_end)
+            result["sources"].extend(workforce_sources)
+            result["dataQuality"]["workforceMonthlyCoverage"] = {
+                "periods": len(result["workforce"]["periods"]),
+                "months": [period["periodStart"][:7] for period in result["workforce"]["periods"]],
+                "cardsPerMonth": {period["periodStart"][:7]: len(period["cards"]) for period in result["workforce"]["periods"]},
+                "assetSlicesPerMonth": {
+                    period["periodStart"][:7]: sum(len(card["assets"]) for card in period["cards"])
+                    for period in result["workforce"]["periods"]
+                },
+            }
             result["reportMetadata"]["workforce"] = {
-                "granularity": "card-period",
-                "sourceFile": Path(workforce).name,
+                "granularity": "card-month",
+                "sourceFiles": [Path(path).name for path in workforce],
                 "groupBy": "Operator card",
                 "statistics": ["dailyAverage", "monthlyAverage", "total"],
-                "averageSemantics": "Source-reported averages; denominator is not reconstructed by Pulso.",
+                "averageSemantics": "Source-reported averages; Pulso preserves monthly totals and never fabricates card-day values.",
             }
         return result
     finally:
@@ -690,7 +731,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path)
     parser.add_argument("--output", type=Path, default=Path(".data/Pulso-base-operacao.json"))
-    parser.add_argument("--workforce", type=Path, help="Workforce KPI export; mantém médias nativas e totais no grão card-period")
+    parser.add_argument("--workforce", type=Path, nargs="+", help="Um ou mais exports Workforce mensais; mantém médias nativas e totais no grão card-month")
     args = parser.parse_args()
     data = convert(args.folder, args.workforce)
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -702,5 +743,5 @@ if __name__ == "__main__":
         "periodEnd": data["periodEnd"],
         "assetDays": len(data["daily"]),
         "events": len(data["events"]),
-        "cards": len(data.get("workforce", {}).get("cards", [])),
+        "cards": sum(len(period["cards"]) for period in data.get("workforce", {}).get("periods", [])),
     }, ensure_ascii=False))

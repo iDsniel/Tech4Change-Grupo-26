@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { HysterData, WorkforceMetricKey, WorkforceMetrics } from "@/lib/hyster";
+import { workforceCardSlices, type HysterData, type WorkforceMetricKey, type WorkforceMetrics } from "@/lib/hyster";
 import { followUp, statusLabels, type Workspace } from "@/lib/operations";
 
 const fmt = (value: number | null | undefined, suffix = "") => value == null
@@ -40,22 +40,28 @@ export default function WorkforceCards({ data, workspace }: Props) {
   const [card, setCard] = useState("all");
   const workforce = data.workforce;
   const months = [...new Set(data.daily.map(row => row.date.slice(0, 7)))].sort();
+  const workforceSlices = workforceCardSlices(
+    data,
+    month === "all" ? data.periodStart : `${month}-01`,
+    month === "all" ? data.periodEnd : `${month}-31`
+  );
+  const workforceRows = workforceSlices.flatMap((slice) => slice.cards);
 
-  const workforceCodes = workforce?.cards.flatMap(row => row.cardCode ? [row.cardCode] : []) ?? [];
+  const workforceCodes = workforceRows.flatMap(row => row.cardCode ? [row.cardCode] : []);
   const eventCodes = data.events.flatMap(event => event.cardCode ? [event.cardCode] : []);
   const codes = [...new Set([...workforceCodes, ...eventCodes])].sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
   const workforceCodeSet = new Set(workforceCodes);
   const eventCodeSet = new Set(eventCodes);
   const eventOnlyCodes = [...eventCodeSet].filter(code => !workforceCodeSet.has(code)).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
   const workforceOnlyCodes = [...workforceCodeSet].filter(code => !eventCodeSet.has(code)).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
-  const qualityRows = workforce?.cards.filter(row => row.cardQuality !== "complete") ?? [];
+  const qualityRows = workforceRows.filter(row => row.cardQuality !== "complete");
 
   const filteredEvents = useMemo(() => data.events.filter(event =>
     (asset === "all" || event.assetId === asset) &&
     (month === "all" || event.date.startsWith(month)) &&
     (card === "all" || event.cardCode === card)), [data.events, asset, month, card]);
 
-  const workforceMatches = card === "all" ? [] : workforce?.cards.filter(row => row.cardCode === card) ?? [];
+  const workforceMatches = card === "all" ? [] : workforceRows.filter(row => row.cardCode === card);
   const workforceCard = workforceMatches.length === 1 ? workforceMatches[0] : undefined;
   const workforceAsset = asset === "all" ? undefined : workforceCard?.assets.find(row => row.assetId === asset);
   const selectedMetrics = asset === "all" ? workforceCard?.metrics : workforceAsset?.metrics;
@@ -87,10 +93,10 @@ export default function WorkforceCards({ data, workspace }: Props) {
         <label>Mês dos eventos<select value={month} onChange={event => setMonth(event.target.value)}><option value="all">Todo o período</option>{months.map(item => <option key={item}>{item}</option>)}</select></label>
         <label>Cartão<select value={card} onChange={event => setCard(event.target.value)}><option value="all">Todos os cartões</option>{codes.map(code => <option value={code} key={code}>Cartão {code}</option>)}</select></label>
       </div>
-      {workforce ? <p><strong>Indicadores por cartão:</strong> {workforce.periodStart} a {workforce.periodEnd} · granularidade cartão-período · unidade métrica. Os totais do período não são repartidos artificialmente por mês ou dia.</p> : <p>Esta base operacional não contém indicadores agregados por cartão. Gere novamente o pacote unificado com todas as fontes do período.</p>}
-      {month !== "all" && workforceCard && <p><strong>Atenção à granularidade:</strong> o filtro {month} afeta somente os eventos abaixo. Os contadores do cartão permanecem referentes a {workforce?.periodStart} a {workforce?.periodEnd}.</p>}
+      {workforce ? <p><strong>Indicadores por cartão:</strong> granularidade {workforce.granularity === "card-month" ? "cartão-mês" : "cartão-período"} · unidade métrica. O Pulso preserva o período real de cada total.</p> : <p>Esta base operacional não contém indicadores por cartão. Gere novamente o pacote unificado com todas as fontes do período.</p>}
+      {workforceSlices.length > 0 && <p><strong>Contexto Workforce:</strong> {workforceSlices[0].periodStart} a {workforceSlices.at(-1)!.periodEnd}. Um total mensal não é repartido artificialmente por dia.</p>}
       <section className="kpiGrid">
-        <article className="kpiCard"><div><span>Cartões com indicadores</span><strong>{workforce?.cards.length ?? 0}</strong><small>registros agregados do período, sem nomes</small></div></article>
+        <article className="kpiCard"><div><span>Cartões com indicadores</span><strong>{workforceRows.length}</strong><small>recortes do período selecionado, sem nomes</small></div></article>
         <article className="kpiCard"><div><span>Eventos no filtro</span><strong>{filteredEvents.length}</strong><small>{filteredEvents.filter(event => event.type === "Impacto").length} impactos · {filteredEvents.filter(event => event.type === "Falha do sistema").length} falhas registradas</small></div></article>
         <article className="kpiCard"><div><span>Códigos sem indicadores</span><strong>{eventOnlyCodes.length}</strong><small>presentes em eventos, sem correspondência exata nos indicadores por cartão</small></div></article>
         <article className="kpiCard"><div><span>Códigos a revisar</span><strong>{qualityRows.length}</strong><small>incompletos ou ambíguos na origem</small></div></article>
@@ -137,7 +143,7 @@ export default function WorkforceCards({ data, workspace }: Props) {
 
     {card !== "all" && <section className="detailCard">
       <h2>Evolução temporal disponível</h2>
-      <p>Os indicadores do cartão fornecem um único total para todo o período. Por isso, a evolução mensal abaixo usa somente os eventos com o código selecionado; horas e distância do período não são distribuídas artificialmente.</p>
+      <p>Com o Workforce mensal, os indicadores podem ser comparados mês a mês quando o cartão existe na origem. Eventos continuam preservados na própria granularidade.</p>
       <div className="hysterTable"><table><thead><tr><th>Mês</th><th>Eventos</th><th>Impactos</th><th>Falhas registradas</th></tr></thead><tbody>{eventEvolution.map(row => <tr key={row.period}><th>{row.period}</th><td>{row.total}</td><td>{row.impacts}</td><td>{row.failures}</td></tr>)}</tbody></table></div>
     </section>}
 

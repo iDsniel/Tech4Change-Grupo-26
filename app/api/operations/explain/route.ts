@@ -47,8 +47,8 @@ REGRAS OBRIGATÓRIAS:
 6. Diferencie fato observado, interpretação plausível e informação ausente.
 7. Na resposta principal, NÃO use os termos z-score, desvio padrão, sigma, percentil, Isolation Forest, baseline ou anomalia multivariada. Esses termos pertencem apenas à camada técnica da interface.
 8. Explique em linguagem de operação: o que mudou, quais outros sinais ajudam a interpretar, por que vale olhar e o que o humano deveria verificar primeiro.
-9. Respeite rigorosamente a granularidade: context.daily é do dia; context.aggregateTelemetry é agregado do período declarado e NUNCA deve ser descrito como se fosse daquele dia.
-10. Hidráulica, movimento, marcha, elevação e demais indicadores agregados podem contextualizar o padrão operacional, mas não provam produtividade diária.
+9. Respeite rigorosamente a granularidade: context.daily é do dia. context.aggregateTelemetry pode ser asset-month ou asset-period. Quando for asset-month, descreva como contexto do mês declarado; NUNCA como valor daquele dia.
+10. Hidráulica, movimento, marcha, elevação/descida e demais indicadores mensais/agregados podem contextualizar o padrão operacional, mas não provam produtividade diária.
 11. Se context.availability.demandOrProduction for false, não conclua perda de produtividade. Diga que baixa atividade também pode refletir menor demanda e que isso precisa ser verificado.
 12. Se houver produção/apontamento do mesmo dia, trate apenas como fato registrado; não derive eficiência ou causalidade sem base comparável.
 13. Use contexto de falhas, impactos e ordens como apoio à investigação, nunca como diagnóstico automático.
@@ -59,7 +59,7 @@ REGRAS OBRIGATÓRIAS:
 18. Arredonde números apresentados ao usuário para inteiros; não use casas decimais.
 19. Responda em português do Brasil.
 20. Retorne APENAS JSON válido com exatamente as chaves string: headline, explanation, whyItMatters, uncertainty.
-21. Em uncertainty, diga explicitamente que a leitura é hipótese/indício e não comprova causalidade. Quando usar indicador agregado, também deixe claro que ele não representa necessariamente o dia analisado.
+21. Em uncertainty, diga explicitamente que a leitura é hipótese/indício e não comprova causalidade. Quando usar indicador mensal/agregado, deixe claro que ele contextualiza o mês/período e não representa necessariamente o dia analisado.
 
 EVIDÊNCIAS E CONTEXTO PERMITIDOS:
 ${JSON.stringify(packet)}`;
