@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BrainCircuit, CheckCircle2, ChevronRight, Microscope, ShieldCheck, Sparkles } from "lucide-react";
 import type { HysterData } from "@/lib/hyster";
+import type { DailyInput, WorkOrder } from "@/lib/operations";
 import {
   analyzeOperationalAI,
   operationalExplanationPacket,
@@ -28,6 +29,8 @@ type Props = {
   dateFrom: string;
   dateTo: string;
   initialInsightId?: string;
+  orders?: WorkOrder[];
+  inputs?: DailyInput[];
   onRegisterAction: (insight: OperationalAIInsight) => void;
 };
 
@@ -49,7 +52,7 @@ function orientation(insight: OperationalAIInsight) {
   return "Valide demanda, filas, rota, abastecimento e condição do equipamento.";
 }
 
-export default function OperationalAIPanel({ data, assetFilter = "all", cardFilter = "all", dateFrom, dateTo, initialInsightId, onRegisterAction }: Props) {
+export default function OperationalAIPanel({ data, assetFilter = "all", cardFilter = "all", dateFrom, dateTo, initialInsightId, orders = [], inputs = [], onRegisterAction }: Props) {
   const analysis = useMemo(() => analyzeOperationalAI(data), [data]);
   const workforceProfiles = useMemo(() => analyzeWorkforceProfiles(data, cardFilter === "all" ? undefined : cardFilter), [data, cardFilter]);
   const filtered = useMemo(() => analysis.insights.filter((insight) =>
@@ -62,7 +65,7 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
   const [explanation, setExplanation] = useState<ExplanationResponse>();
   const [explanationError, setExplanationError] = useState("");
   const selected = useMemo(() => filtered.find((item) => item.id === selectedId) ?? filtered.find((item) => item.id === initialInsightId) ?? filtered[0], [filtered, initialInsightId, selectedId]);
-  const selectedContext = useMemo(() => selected ? buildOperationalContext({ data, insight: selected }) : undefined, [data, selected]);
+  const selectedContext = useMemo(() => selected ? buildOperationalContext({ data, insight: selected, orders, inputs }) : undefined, [data, selected, orders, inputs]);
   const selectedProfile = useMemo(
     () => selected ? workforceProfiles?.profiles.find((profile) => profile.assetId === selected.assetId) : undefined,
     [selected, workforceProfiles]
