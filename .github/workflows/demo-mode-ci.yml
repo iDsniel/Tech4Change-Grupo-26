@@ -34,7 +34,7 @@ jobs:
           grep -q 'KLT-03' components/DemoMode.tsx
           grep -q 'KLT-04' components/DemoMode.tsx
           grep -q 'KLT-05' components/DemoMode.tsx
-          grep -q 'Potencialize com o Pulso' components/KoneDemoDashboard.tsx
+          grep -q 'POTENCIALIZE COM O PULSO' components/KoneDemoDashboard.tsx
           grep -q '2 t por fardo' components/KoneDemoDashboard.tsx
           grep -q 'demoFocus' app/demo-mode.css
           grep -q 'DemoMode' app/layout.tsx
