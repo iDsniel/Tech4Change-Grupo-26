@@ -716,10 +716,13 @@ def convert(folder, workforce=None):
             }
             result["reportMetadata"]["workforce"] = {
                 "granularity": "card-month",
+                "timeGranularity": "month",
+                "rowTimestampAvailable": False,
+                "shiftAttributionAvailable": False,
                 "sourceFiles": [Path(path).name for path in workforce],
                 "groupBy": "Operator card",
                 "statistics": ["dailyAverage", "monthlyAverage", "total"],
-                "averageSemantics": "Source-reported averages; Pulso preserves monthly totals and never fabricates card-day values.",
+                "averageSemantics": "Source-reported averages; Pulso preserves monthly totals and never fabricates card-day or shift values.",
             }
         return result
     finally:
