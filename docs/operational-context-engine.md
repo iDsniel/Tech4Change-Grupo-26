@@ -16,7 +16,7 @@ Para cada insight priorizado o OCE cria um pacote estruturado com:
 
 - telemetria diária exata do equipamento: chave, presença, trabalho, ociosidade e espera;
 - falhas, impactos e demais tipos de evento do mesmo equipamento/dia;
-- telemetria agregada disponível por equipamento: hidráulica, movimento, elevação/descida, alta velocidade, frente/ré, distância e demais contadores presentes;
+- telemetria mensal disponível por equipamento: função hidráulica (elevação, descida, inclinação/auxiliares quando disponíveis), movimento, marcha frente/ré, velocidade, distância e demais contadores presentes;
 - granularidade e período explícitos para cada bloco;
 - disponibilidade ou ausência de demanda/produção, planejamento, parada e manutenção detalhada;
 - contexto estruturado de ações/apontamentos quando fornecido ao engine;
@@ -26,17 +26,19 @@ Para cada insight priorizado o OCE cria um pacote estruturado com:
 
 Os dados diários são identificados como `asset-day`.
 
-Os indicadores provenientes do bloco agregado por cartão/equipamento são consolidados sem identidade individual e identificados como `asset-period`. Eles **não** são rateados ou apresentados como se pertencessem ao dia do insight.
+Os indicadores Workforce atuais são mensais. Para cada insight, o engine seleciona o mês que contém a data analisada, remove a identidade individual e identifica esse bloco como `asset-month`.
 
 Exemplo válido:
 
-> No agregado de 01/06 a 31/08, hidráulica representou 42% das horas de chave.
+> Em julho, a função hidráulica representou 42% das horas de chave do equipamento. Esse dado ajuda a contextualizar o insight de 10/07.
 
 Exemplo inválido:
 
 > Em 10/07, a hidráulica foi 42%.
 
-quando a origem só fornece o total do trimestre.
+porque 42% é o total/razão mensal e não uma medida diária.
+
+Se uma base antiga `card-period` for importada, o engine mantém compatibilidade usando `asset-period` e aplica o caveat correspondente.
 
 ## Privacidade e human-in-the-loop
 
