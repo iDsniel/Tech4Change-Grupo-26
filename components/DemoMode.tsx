@@ -24,37 +24,34 @@ function clickButton(text: string) {
   findButton(text)?.click();
 }
 
-function insightCard(assetId: string) {
-  return Array.from(document.querySelectorAll<HTMLElement>(".insightCard")).find((item) => item.textContent?.includes(assetId)) ?? null;
+function assetRow(assetId: string) {
+  return Array.from(document.querySelectorAll<HTMLElement>(".demoFleetGrid tbody tr")).find((item) => item.textContent?.includes(assetId)) ?? null;
 }
 
-function articleContaining(text: string) {
-  return Array.from(document.querySelectorAll<HTMLElement>("article")).find((item) => item.textContent?.includes(text)) ?? null;
+function selectAsset(assetId: string) {
+  clickButton("Visão geral");
+  window.setTimeout(() => {
+    const row = assetRow(assetId);
+    row?.click();
+  }, 100);
 }
 
-function manager() {
-  clickButton("Gestor");
+function selectAssist(label: string) {
+  window.setTimeout(() => clickButton(label), 180);
 }
 
-function selectInsight(assetId: string) {
-  manager();
-  clickButton("Todos");
-  window.setTimeout(() => insightCard(assetId)?.click(), 80);
+function openInvestigation(assetId: string) {
+  selectAsset(assetId);
+  window.setTimeout(() => clickButton("Investigar"), 200);
+  window.setTimeout(() => {
+    const item = Array.from(document.querySelectorAll<HTMLButtonElement>(".demoInsightQueue button")).find((button) => button.textContent?.includes(assetId));
+    item?.click();
+  }, 420);
 }
 
-function openActionForm() {
-  selectInsight("FLT-023");
-  let attempts = 0;
-  const timer = window.setInterval(() => {
-    attempts += 1;
-    const button = findButton("Registrar ação realizada") ?? findButton("Registrar nova ação");
-    if (button) {
-      button.click();
-      window.clearInterval(timer);
-    } else if (attempts >= 20) {
-      window.clearInterval(timer);
-    }
-  }, 120);
+function openTechnical() {
+  const details = document.querySelector<HTMLDetailsElement>(".technicalDetails");
+  if (details) details.open = true;
 }
 
 export function DemoMode() {
@@ -65,59 +62,59 @@ export function DemoMode() {
   const steps = useMemo<DemoStep[]>(() => [
     {
       kicker: "ABERTURA",
-      title: "Da telemetria à decisão humana",
-      narration: "Comece pelo problema: máquinas conectadas já geram muitos dados. O diferencial do copiloto é transformar telemetria em prioridade, evidência e ação — sem automatizar a decisão final.",
-      prepare: manager,
-      target: () => document.querySelector<HTMLElement>(".kpiGrid")
+      title: "Mesmo Pulso, outra fonte de telemetria",
+      narration: "A demo simula uma operação de celulose com seis empilhadeiras Konecranes de 16 t. Cada fardo tem 2 t e cada movimento produtivo leva dois fardos, portanto 4 t. Os números são sintéticos; a escolha das variáveis segue conceitos públicos do TRUCONNECT.",
+      prepare: () => clickButton("Visão geral"),
+      target: () => document.querySelector<HTMLElement>(".demoAssumptionBar")
     },
     {
-      kicker: "1 · DETECTAR",
-      title: "FLT-017: um desvio que merece atenção",
-      narration: "Mostre que o sistema encontrou sozinho um padrão de ineficiência. A comparação é contextual: mesma máquina e mesmo turno, usando o histórico como baseline.",
-      prepare: () => selectInsight("FLT-017"),
-      target: () => document.querySelector<HTMLElement>(".detailHeader")
+      kicker: "1 · NEGÓCIO",
+      title: "Carga vira contexto de produtividade",
+      narration: "Selecione a KLT-03. O Pulso traduz carga total levantada para toneladas, fardos e movimentos produtivos e combina isso com horas em deslocamento, ociosidade, deslocamento vazio e combustível.",
+      prepare: () => { selectAsset("KLT-03"); selectAssist("Produtividade"); },
+      target: () => document.querySelector<HTMLElement>(".copilotReading")
     },
     {
-      kicker: "2 · EXPLICAR",
-      title: "A IA traduz evidência, não inventa diagnóstico",
-      narration: "A camada generativa recebe somente evidências estruturadas do motor. Se estiver offline, o fallback determinístico mantém a demonstração funcional.",
-      prepare: () => selectInsight("FLT-017"),
-      target: () => articleContaining("Copiloto · explicação das evidências") ?? articleContaining("Copiloto explicando as evidências")
+      kicker: "2 · DETECTAR",
+      title: "Atividade abaixo do histórico comparável",
+      narration: "O motor compara o mesmo ativo e turno com seu histórico recente. A queda de toneladas por hora junto de mais ociosidade ou consumo por tonelada vira um ponto de investigação, não um diagnóstico automático.",
+      prepare: () => openInvestigation("KLT-03"),
+      target: () => document.querySelector<HTMLElement>(".demoInsightDetail")
     },
     {
-      kicker: "3 · PROVAR",
-      title: "Z-score: qual variável saiu do normal?",
-      narration: "Explique que o z-score mede quanto consumo, idle e demais métricas se afastaram do comportamento histórico comparável. Ele torna a anomalia auditável.",
-      prepare: () => selectInsight("FLT-017"),
-      target: () => articleContaining("Leitura estatística explicável")
+      kicker: "3 · AUDITAR",
+      title: "Evidência técnica continua disponível",
+      narration: "A camada principal usa linguagem operacional. Em detalhes técnicos, z-score e Isolation Forest permanecem auditáveis para explicar por que aquele contexto foi priorizado.",
+      prepare: () => { openInvestigation("KLT-03"); window.setTimeout(openTechnical, 520); },
+      target: () => document.querySelector<HTMLElement>(".technicalDetails")
     },
     {
-      kicker: "4 · CONFIRMAR",
-      title: "Isolation Forest: a combinação inteira também é rara?",
-      narration: "O segundo modelo olha o conjunto das variáveis. Quando as duas camadas concordam, a confiança aumenta — mas causalidade e decisão continuam humanas.",
-      prepare: () => selectInsight("FLT-017"),
-      target: () => articleContaining("2ª opinião · Isolation Forest")
+      kicker: "4 · SEGURANÇA",
+      title: "Velocidade, impactos e contexto da rota",
+      narration: "Na KLT-04, a demo combina traveling speed, faixa alta e shock sensors. Frente/ré não aparece porque a referência pública usada não lista essa dimensão para TRUCONNECT lift trucks — o Pulso não inventa dado para preencher a tela.",
+      prepare: () => { selectAsset("KLT-04"); selectAssist("Segurança"); },
+      target: () => document.querySelector<HTMLElement>(".copilotReading")
     },
     {
-      kicker: "5 · MEDIR",
-      title: "Depois da ação, o sistema acompanha o resultado",
-      narration: "Aqui está o fechamento do ciclo: a intervenção registrada é comparada aos próximos turnos. Na demo da FLT-017, os sinais convergem novamente para o baseline.",
-      prepare: () => selectInsight("FLT-017"),
-      target: () => articleContaining("Feedback pós-recomendação")
+      kicker: "5 · MANUTENÇÃO",
+      title: "Uso real ajuda a planejar a parada",
+      narration: "Na KLT-05, o contador de próxima manutenção e alertas de diagnóstico entram como contexto. O Pulso orienta verificação e planejamento, sem transformar telemetria em previsão automática de pane.",
+      prepare: () => { selectAsset("KLT-05"); selectAssist("Manutenção"); },
+      target: () => document.querySelector<HTMLElement>(".copilotReading")
     },
     {
-      kicker: "6 · AGIR AO VIVO",
-      title: "Registre uma nova ação na FLT-023",
-      narration: "O formulário já abre com o contexto sugerido. Revise a ação, o responsável e a data; depois clique em Salvar e acompanhar. O registro fica persistido no SQLite. Se não houver turnos suficientes depois da ação, o sistema informa que está aguardando dados em vez de inventar resultado.",
-      prepare: openActionForm,
-      target: () => articleContaining("Registrar ação realizada") ?? articleContaining("Feedback pós-recomendação")
+      kicker: "6 · MULTI-OEM",
+      title: "A interface não depende de uma métrica específica",
+      narration: "Abra Fonte e capacidades. No Hyster usamos função hidráulica, marcha e outros indicadores disponíveis. Na Konecranes a demo prioriza load lifted, running modes, fuel, speed, shocks e maintenance counter. A arquitetura é a mesma; o adaptador muda.",
+      prepare: () => clickButton("Base"),
+      target: () => document.querySelector<HTMLElement>(".demoSource")
     },
     {
       kicker: "FECHAMENTO",
-      title: "A máquina gera dados. A IA encontra o padrão. O ser humano decide.",
-      narration: "Feche reforçando que o MVP é independente de fabricante: diferentes fontes entram por adapters e chegam ao mesmo contrato normalizado. O valor está na camada de inteligência e no ciclo detectar → orientar → medir.",
-      prepare: manager,
-      target: () => document.querySelector<HTMLElement>(".dataFooter")
+      title: "A máquina gera dados. O Pulso cria contexto. O humano decide.",
+      narration: "O diferencial não é replicar o portal do fabricante. É normalizar sinais diferentes, detectar mudanças, relacionar telemetria ao processo e traduzir tudo em uma próxima verificação compreensível e auditável.",
+      prepare: () => { clickButton("Visão geral"); selectAsset("KLT-03"); },
+      target: () => document.querySelector<HTMLElement>(".operationsCopilotSplit")
     }
   ], []);
 
@@ -139,10 +136,10 @@ export function DemoMode() {
         document.querySelectorAll(".demoFocus").forEach((node) => node.classList.remove("demoFocus"));
         target.classList.add("demoFocus");
         target.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (attempts >= 20) {
+      } else if (attempts >= 24) {
         window.clearInterval(timer);
       }
-    }, 120);
+    }, 140);
   }, [steps]);
 
   const start = useCallback(() => {
@@ -199,18 +196,13 @@ export function DemoMode() {
       <div className="demoPanelTop">
         <div className="demoModeBadge"><Presentation size={14} /> DEMO MODE</div>
         <div className="demoPanelActions">
-          <button
-            title="Tela cheia"
-            onClick={() => document.documentElement.requestFullscreen?.().catch(() => undefined)}
-          ><Maximize2 size={15} /></button>
+          <button title="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.().catch(() => undefined)}><Maximize2 size={15} /></button>
           <button title="Encerrar demonstração" onClick={stop}><X size={16} /></button>
         </div>
       </div>
 
       <div className="demoProgress" aria-label={`Passo ${stepIndex + 1} de ${steps.length}`}>
-        {steps.map((_, index) => (
-          <span key={index} className={index <= stepIndex ? "active" : ""} />
-        ))}
+        {steps.map((_, index) => <span key={index} className={index <= stepIndex ? "active" : ""} />)}
       </div>
 
       <div className="demoCopy">
@@ -220,16 +212,10 @@ export function DemoMode() {
       </div>
 
       <div className="demoNav">
-        <button onClick={() => go(stepIndex - 1)} disabled={stepIndex === 0}>
-          <ChevronLeft size={16} /> Anterior
-        </button>
-        {stepIndex < steps.length - 1 ? (
-          <button className="primary" onClick={() => go(stepIndex + 1)}>
-            Próximo <ChevronRight size={16} />
-          </button>
-        ) : (
-          <button className="primary" onClick={stop}>Finalizar</button>
-        )}
+        <button onClick={() => go(stepIndex - 1)} disabled={stepIndex === 0}><ChevronLeft size={16} /> Anterior</button>
+        {stepIndex < steps.length - 1
+          ? <button className="primary" onClick={() => go(stepIndex + 1)}>Próximo <ChevronRight size={16} /></button>
+          : <button className="primary" onClick={stop}>Finalizar</button>}
       </div>
       <small>Atalhos: ← → · espaço · Esc</small>
     </aside>
