@@ -10,7 +10,9 @@ export type WorkOrder = {
 export type DailyInput = {
   id: string; assetId: string; date: string; plannedHours: number | null; downtimeHours: number | null;
   fuelQuantity: number | null; fuelUnit: "L" | "kg"; costBRL: number | null;
-  production: number | null; productionUnit: "t" | "movimentos"; note: string;
+  production: number | null; productionUnit: "t" | "movimentos" | "pallets";
+  usageContext?: "production" | "maintenance" | "mixed" | "unknown";
+  note: string;
 };
 export type Workspace = { version: 1; datasets: HysterData[]; orders: WorkOrder[]; inputs: DailyInput[] };
 export const emptyWorkspace = (): Workspace => ({ version: 1, datasets: [], orders: [], inputs: [] });
@@ -18,7 +20,7 @@ export const statusLabels: Record<OrderStatus, string> = { open: "Aberta", in_pr
 const validDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 const nonNegative = (n: number | null) => n === null || (typeof n === "number" && Number.isFinite(n) && n >= 0);
 export function validateInput(r: DailyInput) {
-  if (!r || typeof r.id !== "string" || !/^EP\d{2,6}$/.test(r.assetId) || !validDate(r.date) || ![r.plannedHours, r.downtimeHours, r.fuelQuantity, r.costBRL, r.production].every(nonNegative) || !["L", "kg"].includes(r.fuelUnit) || !["t", "movimentos"].includes(r.productionUnit) || typeof r.note !== "string") throw new Error("Apontamento inválido.");
+  if (!r || typeof r.id !== "string" || !/^EP\d{2,6}$/.test(r.assetId) || !validDate(r.date) || ![r.plannedHours, r.downtimeHours, r.fuelQuantity, r.costBRL, r.production].every(nonNegative) || !["L", "kg"].includes(r.fuelUnit) || !["t", "movimentos", "pallets"].includes(r.productionUnit) || (r.usageContext !== undefined && !["production", "maintenance", "mixed", "unknown"].includes(r.usageContext)) || typeof r.note !== "string") throw new Error("Apontamento inválido.");
   if ((r.plannedHours ?? 0) > 24 || (r.downtimeHours ?? 0) > 24 || (r.downtimeHours !== null && (r.plannedHours === null || r.downtimeHours > r.plannedHours))) throw new Error("Parada deve estar dentro das horas planejadas do dia (máximo 24 h).");
   if ([r.plannedHours, r.downtimeHours, r.fuelQuantity, r.costBRL, r.production].every(v => v === null)) throw new Error("Informe ao menos uma medida.");
   return r;
@@ -78,7 +80,8 @@ export function inputSummary(rows: DailyInput[]) {
     fuelKg: rows.filter(r => r.fuelUnit === "kg" && r.fuelQuantity !== null).reduce((s, r) => s + r.fuelQuantity!, 0),
     cost: rows.reduce((s, r) => s + (r.costBRL ?? 0), 0),
     tonnes: rows.filter(r => r.productionUnit === "t").reduce((s, r) => s + (r.production ?? 0), 0),
-    movements: rows.filter(r => r.productionUnit === "movimentos").reduce((s, r) => s + (r.production ?? 0), 0) };
+    movements: rows.filter(r => r.productionUnit === "movimentos").reduce((s, r) => s + (r.production ?? 0), 0),
+    pallets: rows.filter(r => r.productionUnit === "pallets").reduce((s, r) => s + (r.production ?? 0), 0) };
 }
 export function followUp(data: HysterData, order: WorkOrder) {
   if (!order.completedAt) return null;

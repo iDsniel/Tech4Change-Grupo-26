@@ -1,5 +1,7 @@
 import { workforceCardSlices, type HysterData, type WorkforceMetrics } from "./hyster.ts";
+import { monthlyBusinessComparison } from "./monthlyContext.ts";
 import type { DailyInput, WorkOrder } from "./operations.ts";
+import { currentOperationProfile, operationalShiftForTime } from "./operationProfile.ts";
 import type { OperationalAIInsight } from "./operationalAI.ts";
 
 export type OperationalContext = {
@@ -47,11 +49,51 @@ export type OperationalContext = {
     };
     caveat: string;
   };
+  monthlyTrend?: {
+    currentMonth: string;
+    previousMonth: string | null;
+    activity: {
+      workPct: { current: number | null; previous: number | null; delta: number | null };
+      hydraulicPct: { current: number | null; previous: number | null; delta: number | null };
+      motionPct: { current: number | null; previous: number | null; delta: number | null };
+      idlePct: { current: number | null; previous: number | null; delta: number | null };
+    };
+    travelSafety: {
+      reverseSharePct: { current: number | null; previous: number | null; delta: number | null };
+      forwardSharePct: number | null;
+      highSpeedSharePct: { current: number | null; previous: number | null; delta: number | null };
+      overspeedSharePct: { current: number | null; previous: number | null; delta: number | null };
+      impacts: { current: number | null; previous: number | null; delta: number | null };
+      impactsByShift: { A: number; B: number; C: number };
+      faultsByShift: { A: number; B: number; C: number };
+    };
+    business: {
+      costBRL: number | null;
+      pallets: number | null;
+      costPerPallet: number | null;
+    };
+  };
+  businessContext: {
+    source: "configured-current-operation";
+    primaryMaterialFlow: string;
+    fleetAlsoUsedByMaintenance: boolean;
+    workforceShiftGranularity: "month-only";
+    shifts: { code: "A" | "B" | "C"; start: string; end: string }[];
+    safety: {
+      reverseTravelPreferred: boolean;
+      speedIsRelevant: boolean;
+    };
+  };
   events: {
     faults: number;
     impacts: number;
     total: number;
     byType: { type: string; count: number }[];
+    byShift: {
+      A: { impacts: number; faults: number; total: number };
+      B: { impacts: number; faults: number; total: number };
+      C: { impacts: number; faults: number; total: number };
+    };
     criticalOnly: boolean;
   };
   management: {
@@ -63,7 +105,8 @@ export type OperationalContext = {
       fuelUnit: "L" | "kg";
       costBRL: number | null;
       production: number | null;
-      productionUnit: "t" | "movimentos";
+      productionUnit: "t" | "movimentos" | "pallets";
+      usageContext: "production" | "maintenance" | "mixed" | "unknown";
     };
     openOrders: number;
     inProgressOrders: number;
@@ -78,6 +121,8 @@ export type OperationalContext = {
     aggregateTelemetry: boolean;
     loadTelemetry: boolean;
     fuelTelemetry: boolean;
+    monthlyComparison: boolean;
+    usageContext: boolean;
   };
   limitations: string[];
 };
@@ -100,6 +145,7 @@ const ratio = (numerator: number | undefined, denominator: number | undefined) =
 const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value);
 const optionalFinite = (value: unknown) => value === null || finite(value);
 const validDate = (value: unknown) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value));
+const validMonth = (value: unknown) => typeof value === "string" && /^\d{4}-\d{2}$/.test(value);
 
 function mergeMetrics(rows: WorkforceMetrics[]) {
   const merged: WorkforceMetrics = {};
@@ -120,7 +166,6 @@ function aggregateTelemetry(data: HysterData, assetId: string, date: string): Op
   const sourcePeriods = workforceCardSlices(data, `${month}-01`, `${month}-31`);
   if (!sourcePeriods.length) return undefined;
 
-  // Aggregate complete slices from the month containing the insight. Card identity is deliberately removed.
   const assetSlices = sourcePeriods.flatMap((period) =>
     period.cards
       .filter((card) => card.cardQuality === "complete")
@@ -150,11 +195,11 @@ function aggregateTelemetry(data: HysterData, assetId: string, date: string): Op
       motionPct: ratio(metrics.motionHours, metrics.keyHours),
       liftPct: ratio(metrics.liftHours, metrics.keyHours),
       lowerPct: ratio(metrics.lowerHours, metrics.keyHours),
-      lowSpeedPct: ratio(metrics.lowSpeedHours, metrics.keyHours),
-      mediumSpeedPct: ratio(metrics.mediumSpeedHours, metrics.keyHours),
-      highSpeedPct: ratio(metrics.highSpeedHours, metrics.keyHours),
-      lowOverspeedPct: ratio(metrics.lowLevelOverspeedHours, metrics.keyHours),
-      highOverspeedPct: ratio(metrics.highLevelOverspeedHours, metrics.keyHours),
+      lowSpeedPct: ratio(metrics.lowSpeedHours, metrics.motionHours),
+      mediumSpeedPct: ratio(metrics.mediumSpeedHours, metrics.motionHours),
+      highSpeedPct: ratio(metrics.highSpeedHours, metrics.motionHours),
+      lowOverspeedPct: ratio(metrics.lowLevelOverspeedHours, metrics.motionHours),
+      highOverspeedPct: ratio(metrics.highLevelOverspeedHours, metrics.motionHours),
       marchPct: ratio(marchHours, metrics.keyHours),
       forwardSharePct: ratio(metrics.forwardHours, marchHours),
       reverseSharePct: ratio(metrics.reverseHours, marchHours),
@@ -163,7 +208,7 @@ function aggregateTelemetry(data: HysterData, assetId: string, date: string): Op
       unladenPct: ratio(metrics.unladenHours, loadHours)
     },
     caveat: monthly
-      ? `Hidráulica, movimento, marcha, velocidade e carga são totais reais do mês ${sourcePeriods[0].periodStart.slice(0, 7)}. Eles contextualizam o insight, mas não representam necessariamente o mesmo dia.`
+      ? `Hidráulica, movimento, marcha e velocidade são totais reais do mês ${sourcePeriods[0].periodStart.slice(0, 7)}. Eles contextualizam o insight, mas não representam necessariamente o mesmo dia ou turno.`
       : "Indicadores de movimento, hidráulica, velocidade, carga e marcha são agregados do período Workforce informado; não representam necessariamente o dia do insight."
   };
 }
@@ -171,12 +216,26 @@ function aggregateTelemetry(data: HysterData, assetId: string, date: string): Op
 function eventContext(data: HysterData, assetId: string, date: string): OperationalContext["events"] {
   const events = data.events.filter((event) => event.assetId === assetId && event.date === date);
   const counts = new Map<string, number>();
-  for (const event of events) counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
+  const byShift = {
+    A: { impacts: 0, faults: 0, total: 0 },
+    B: { impacts: 0, faults: 0, total: 0 },
+    C: { impacts: 0, faults: 0, total: 0 }
+  };
+  for (const event of events) {
+    counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
+    const shift = operationalShiftForTime(event.time);
+    if (shift) {
+      byShift[shift].total += 1;
+      if (event.type === "Impacto") byShift[shift].impacts += 1;
+      if (event.type === "Falha do sistema") byShift[shift].faults += 1;
+    }
+  }
   return {
     faults: events.filter((event) => event.type === "Falha do sistema").length,
     impacts: events.filter((event) => event.type === "Impacto").length,
     total: events.length,
     byType: [...counts.entries()].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count || a.type.localeCompare(b.type)).slice(0, 20),
+    byShift,
     criticalOnly: data.dataQuality?.eventExportCriticalOnly === true
   };
 }
@@ -196,7 +255,8 @@ function managementContext(assetId: string, date: string, orders: WorkOrder[], i
       fuelUnit: sameDay.fuelUnit,
       costBRL: sameDay.costBRL,
       production: sameDay.production,
-      productionUnit: sameDay.productionUnit
+      productionUnit: sameDay.productionUnit,
+      usageContext: sameDay.usageContext ?? "unknown"
     } : undefined,
     openOrders: assetOrders.filter((order) => order.status === "open").length,
     inProgressOrders: assetOrders.filter((order) => order.status === "in_progress").length,
@@ -205,26 +265,70 @@ function managementContext(assetId: string, date: string, orders: WorkOrder[], i
   };
 }
 
+function trendContext(data: HysterData, assetId: string, date: string, inputs: DailyInput[]): OperationalContext["monthlyTrend"] | undefined {
+  const comparison = monthlyBusinessComparison(data, assetId, date.slice(0, 7), "all", inputs);
+  if (!comparison) return undefined;
+  const current = comparison.current;
+  return {
+    currentMonth: current.month,
+    previousMonth: comparison.previous?.month ?? null,
+    activity: {
+      workPct: comparison.changes.workPct,
+      hydraulicPct: comparison.changes.hydraulicPct,
+      motionPct: comparison.changes.motionPct,
+      idlePct: comparison.changes.idlePct
+    },
+    travelSafety: {
+      reverseSharePct: comparison.changes.reverseSharePct,
+      forwardSharePct: current.travelSafety.forwardSharePct,
+      highSpeedSharePct: comparison.changes.highSpeedSharePct,
+      overspeedSharePct: comparison.changes.overspeedSharePct,
+      impacts: comparison.changes.impacts,
+      impactsByShift: {
+        A: current.events.byShift.A.impacts,
+        B: current.events.byShift.B.impacts,
+        C: current.events.byShift.C.impacts
+      },
+      faultsByShift: {
+        A: current.events.byShift.A.faults,
+        B: current.events.byShift.B.faults,
+        C: current.events.byShift.C.faults
+      }
+    },
+    business: {
+      costBRL: current.business.costBRL,
+      pallets: current.business.production.pallets,
+      costPerPallet: current.business.costPerPallet
+    }
+  };
+}
+
 export function buildOperationalContext({ data, insight, orders = [], inputs = [] }: ContextInput): OperationalContext {
   const row = data.daily.find((item) => item.assetId === insight.assetId && item.date === insight.date);
   if (!row) throw new Error("O insight não possui registro diário correspondente na base operacional.");
 
   const aggregate = aggregateTelemetry(data, insight.assetId, insight.date);
+  const monthlyTrend = trendContext(data, insight.assetId, insight.date, inputs);
   const events = eventContext(data, insight.assetId, insight.date);
   const management = managementContext(insight.assetId, insight.date, orders, inputs);
   const loadAvailable = !!aggregate && (aggregate.metrics.ladenHours ?? 0) + (aggregate.metrics.unladenHours ?? 0) > 0;
   const fuelAvailable = data.fuel.some((item) => item.assetId === insight.assetId && item.reportedLiters > 0);
+  const usageContextAvailable = !!management.sameDayInput && management.sameDayInput.usageContext !== "unknown";
   const limitations: string[] = [
     "O contexto organiza evidências disponíveis; não determina causa raiz, previsão de pane ou responsabilidade individual.",
-    "Identidade e código de cartão não são enviados no contexto de interpretação da IA."
+    "Identidade e código de cartão não são enviados no contexto de interpretação da IA.",
+    "Os arquivos Workforce atuais têm granularidade mensal; não possuem dia/hora por uso e não permitem atribuir hidráulica, marcha ou velocidade aos turnos A/B/C."
   ];
   if (aggregate) limitations.push(aggregate.caveat);
   else limitations.push("Não há indicadores agregados de hidráulica, movimento, velocidade, carga ou marcha para este equipamento.");
   if (management.sameDayInput?.production == null) limitations.push("Demanda/produção do dia não está disponível; baixa atividade pode refletir menor demanda e não pode ser classificada automaticamente como perda de produtividade.");
+  if (!usageContextAvailable && currentOperationProfile.fleetAlsoUsedByMaintenance) limitations.push("A frota também é usada em atividades de manutenção, mas este registro não identifica se o uso do dia foi produção, manutenção ou misto.");
   if (!data.maintenanceAvailable) limitations.push("A origem não contém manutenção detalhada suficiente para confirmar diagnóstico técnico.");
   if (events.criticalOnly) limitations.push("O histórico de eventos foi exportado com filtro Crítica = Sim; contagens de eventos não representam necessariamente todos os eventos ocorridos.");
   if (!loadAvailable && data.workforce) limitations.push("Os indicadores de carga estão zerados ou indisponíveis neste período; não inferir operação carregada/descarregada.");
   if (!fuelAvailable) limitations.push("Combustível/energia está zerado ou indisponível nesta base; não estimar consumo ou economia.");
+  if (monthlyTrend?.business.costBRL == null) limitations.push("Custo realizado não está disponível para este mês; não estimar custo por pallet ou economia.");
+  if (monthlyTrend?.business.pallets == null) limitations.push("Quantidade real de pallets movimentados não está disponível para este mês; não calcular produtividade em pallets/h.");
 
   return {
     schemaVersion: "pulso-operational-context-v1",
@@ -245,6 +349,15 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
       sourceWaitPctOfIdle: row.waitPercentOfIdle ?? null
     },
     aggregateTelemetry: aggregate,
+    monthlyTrend,
+    businessContext: {
+      source: currentOperationProfile.source,
+      primaryMaterialFlow: currentOperationProfile.primaryMaterialFlow,
+      fleetAlsoUsedByMaintenance: currentOperationProfile.fleetAlsoUsedByMaintenance,
+      workforceShiftGranularity: "month-only",
+      shifts: currentOperationProfile.shifts.map((shift) => ({ ...shift })),
+      safety: { ...currentOperationProfile.safety }
+    },
     events,
     management,
     availability: {
@@ -254,10 +367,18 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
       maintenanceDetail: data.maintenanceAvailable,
       aggregateTelemetry: !!aggregate,
       loadTelemetry: loadAvailable,
-      fuelTelemetry: fuelAvailable
+      fuelTelemetry: fuelAvailable,
+      monthlyComparison: !!monthlyTrend,
+      usageContext: usageContextAvailable
     },
     limitations
   };
+}
+
+function validMetricDelta(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return [row.current, row.previous, row.delta].every(optionalFinite);
 }
 
 export function validateOperationalContext(value: unknown): OperationalContext {
@@ -274,21 +395,31 @@ export function validateOperationalContext(value: unknown): OperationalContext {
     if (!["asset-month", "asset-period"].includes(String(aggregate.granularity)) || !validDate(aggregate.periodStart) || !validDate(aggregate.periodEnd) || String(aggregate.periodStart) > String(aggregate.periodEnd) || !Number.isInteger(aggregate.usageCount) || !Number.isInteger(aggregate.coverageSlices) || !aggregate.metrics || typeof aggregate.metrics !== "object" || !ratios || !Object.values(ratios).every(optionalFinite) || typeof aggregate.caveat !== "string") throw new Error("Contexto agregado inválido.");
   }
 
+  if (context.monthlyTrend !== undefined) {
+    const trend = context.monthlyTrend as Record<string, unknown>;
+    const activity = trend.activity as Record<string, unknown> | undefined;
+    const safety = trend.travelSafety as Record<string, unknown> | undefined;
+    const business = trend.business as Record<string, unknown> | undefined;
+    if (!validMonth(trend.currentMonth) || !(trend.previousMonth === null || validMonth(trend.previousMonth)) || !activity || !["workPct", "hydraulicPct", "motionPct", "idlePct"].every((key) => validMetricDelta(activity[key])) || !safety || !validMetricDelta(safety.reverseSharePct) || !optionalFinite(safety.forwardSharePct) || !validMetricDelta(safety.highSpeedSharePct) || !validMetricDelta(safety.overspeedSharePct) || !validMetricDelta(safety.impacts) || !business || ![business.costBRL, business.pallets, business.costPerPallet].every(optionalFinite)) throw new Error("Comparação mensal inválida.");
+  }
+
+  const businessContext = context.businessContext as Record<string, unknown> | undefined;
+  if (!businessContext || businessContext.source !== "configured-current-operation" || typeof businessContext.primaryMaterialFlow !== "string" || typeof businessContext.fleetAlsoUsedByMaintenance !== "boolean" || businessContext.workforceShiftGranularity !== "month-only" || !Array.isArray(businessContext.shifts) || businessContext.shifts.length !== 3 || !businessContext.safety || typeof businessContext.safety !== "object") throw new Error("Contexto de negócio inválido.");
+
   const events = context.events as Record<string, unknown> | undefined;
-  if (!events || ![events.faults, events.impacts, events.total].every((item) => Number.isInteger(item) && Number(item) >= 0) || typeof events.criticalOnly !== "boolean" || !Array.isArray(events.byType) || events.byType.length > 20 || events.byType.some((item) => !item || typeof item !== "object" || typeof (item as Record<string, unknown>).type !== "string" || !Number.isInteger((item as Record<string, unknown>).count))) throw new Error("Contexto de eventos inválido.");
+  if (!events || ![events.faults, events.impacts, events.total].every((item) => Number.isInteger(item) && Number(item) >= 0) || typeof events.criticalOnly !== "boolean" || !Array.isArray(events.byType) || events.byType.length > 20 || events.byType.some((item) => !item || typeof item !== "object" || typeof (item as Record<string, unknown>).type !== "string" || !Number.isInteger((item as Record<string, unknown>).count)) || !events.byShift || typeof events.byShift !== "object") throw new Error("Contexto de eventos inválido.");
 
   const management = context.management as Record<string, unknown> | undefined;
   if (!management || management.granularity !== "workspace-current" || ![management.openOrders, management.inProgressOrders, management.completedOrders].every((item) => Number.isInteger(item) && Number(item) >= 0) || !(management.latestCompletedAt === null || validDate(management.latestCompletedAt))) throw new Error("Contexto de gestão inválido.");
   if (management.sameDayInput !== undefined) {
     const input = management.sameDayInput as Record<string, unknown>;
-    if (![input.plannedHours, input.downtimeHours, input.fuelQuantity, input.costBRL, input.production].every(optionalFinite) || !["L", "kg"].includes(String(input.fuelUnit)) || !["t", "movimentos"].includes(String(input.productionUnit))) throw new Error("Apontamento de contexto inválido.");
+    if (![input.plannedHours, input.downtimeHours, input.fuelQuantity, input.costBRL, input.production].every(optionalFinite) || !["L", "kg"].includes(String(input.fuelUnit)) || !["t", "movimentos", "pallets"].includes(String(input.productionUnit)) || !["production", "maintenance", "mixed", "unknown"].includes(String(input.usageContext))) throw new Error("Apontamento de contexto inválido.");
   }
 
   const availability = context.availability as Record<string, unknown> | undefined;
-  if (!availability || ![availability.demandOrProduction, availability.plannedHours, availability.downtime, availability.maintenanceDetail, availability.aggregateTelemetry, availability.loadTelemetry, availability.fuelTelemetry].every((item) => typeof item === "boolean")) throw new Error("Disponibilidade do contexto inválida.");
-  if (!Array.isArray(context.limitations) || context.limitations.length > 16 || context.limitations.some((item) => typeof item !== "string" || item.length > 500)) throw new Error("Limitações do contexto inválidas.");
+  if (!availability || ![availability.demandOrProduction, availability.plannedHours, availability.downtime, availability.maintenanceDetail, availability.aggregateTelemetry, availability.loadTelemetry, availability.fuelTelemetry, availability.monthlyComparison, availability.usageContext].every((item) => typeof item === "boolean")) throw new Error("Disponibilidade do contexto inválida.");
+  if (!Array.isArray(context.limitations) || context.limitations.length > 20 || context.limitations.some((item) => typeof item !== "string" || item.length > 500)) throw new Error("Limitações do contexto inválidas.");
 
-  // Defense in depth: the model context must never contain operator/card identity fields.
   const serialized = JSON.stringify(value).toLowerCase();
   if (serialized.includes('"cardcode"') || serialized.includes('"operator"') || serialized.includes('"operatorname"')) throw new Error("Identidade individual não pode integrar o contexto de IA.");
 

@@ -5,6 +5,8 @@ import { analyzeOperationalAI, operationalExplanationPacket } from "../lib/opera
 import { buildOperationalContext, validateOperationalContext } from "../lib/operationalContext.ts";
 import { deterministicOperationalExplanation, validateOperationalExplanationPacket } from "../lib/operationalExplanation.ts";
 import { scoreIsolationForest } from "../lib/isolationForestCore.ts";
+import { monthlyBusinessSnapshots } from "../lib/monthlyContext.ts";
+import { operationalShiftForTime } from "../lib/operationProfile.ts";
 
 function isoDate(day: number) {
   return `2026-06-${String(day).padStart(2, "0")}`;
@@ -117,10 +119,50 @@ test("Operational Context Engine adds scoped telemetry without operator identity
   assert.equal(validated.aggregateTelemetry?.periodStart, "2026-06-01");
   assert.equal(validated.aggregateTelemetry?.periodEnd, "2026-06-30");
   assert.equal(validated.availability.demandOrProduction, false);
+  assert.equal(validated.businessContext.primaryMaterialFlow, "pallets de hardboard");
+  assert.equal(validated.businessContext.fleetAlsoUsedByMaintenance, true);
+  assert.equal(validated.events.byShift.A.impacts, 1);
+  assert.equal(validated.businessContext.workforceShiftGranularity, "month-only");
   const serialized = JSON.stringify(validated);
   assert.equal(serialized.includes("000845"), false);
   assert.equal(serialized.toLowerCase().includes("cardcode"), false);
   assert.match(validated.limitations.join(" "), /não.*produtividade|demanda\/produção/i);
+});
+
+test("monthly business comparator preserves monthly activity and derives shifts only from timestamped events", () => {
+  const data = fixture();
+  data.periodEnd = "2026-07-31";
+  data.workforce!.periodEnd = "2026-07-31";
+  const july = structuredClone(data.workforce!.periods![0]);
+  july.periodStart = "2026-07-01";
+  july.periodEnd = "2026-07-31";
+  july.sourceFile = "workforce-jul.xlsx";
+  july.sha256 = "c".repeat(64);
+  july.cards[0].metrics = { ...july.cards[0].metrics, keyHours: 120, workHours: 78, hydraulicHours: 36, motionHours: 66, forwardHours: 30, reverseHours: 36, highSpeedHours: 12, lowLevelOverspeedHours: 3, highLevelOverspeedHours: 1 };
+  july.cards[0].assets[0].metrics = structuredClone(july.cards[0].metrics);
+  data.workforce!.periods!.push(july);
+  data.events.push(
+    { assetId: "EP01", date: "2026-07-10", time: "08:00:00", type: "Impacto", sourceCritical: true, sourceStatus: "Aberto", sourceRow: 201 },
+    { assetId: "EP01", date: "2026-07-11", time: "16:00:00", type: "Impacto", sourceCritical: true, sourceStatus: "Aberto", sourceRow: 202 },
+    { assetId: "EP01", date: "2026-07-12", time: "23:30:00", type: "Falha do sistema", sourceCritical: true, sourceStatus: "Aberto", sourceRow: 203 }
+  );
+  const snapshots = monthlyBusinessSnapshots(data, "EP01", "all", [
+    { id: "jul", assetId: "EP01", date: "2026-07-10", plannedHours: 8, downtimeHours: 0, fuelQuantity: null, fuelUnit: "L", costBRL: 420, production: 140, productionUnit: "pallets", usageContext: "production", note: "" }
+  ]);
+  assert.equal(snapshots.length, 2);
+  const current = snapshots[1];
+  assert.equal(current.month, "2026-07");
+  assert.equal(current.activity.hydraulicPct, 30);
+  assert.equal(current.travelSafety.reverseSharePct, 54.55);
+  assert.equal(current.travelSafety.highSpeedSharePct, 18.18);
+  assert.equal(current.events.byShift.A.impacts, 1);
+  assert.equal(current.events.byShift.B.impacts, 1);
+  assert.equal(current.events.byShift.C.faults, 1);
+  assert.equal(current.business.costPerPallet, 3);
+  assert.equal(operationalShiftForTime("06:59:59"), "C");
+  assert.equal(operationalShiftForTime("07:00:00"), "A");
+  assert.equal(operationalShiftForTime("15:00:00"), "B");
+  assert.equal(operationalShiftForTime("23:00:00"), "C");
 });
 
 test("Operational Context Engine can include structured human inputs without free-text notes", () => {
@@ -130,12 +172,13 @@ test("Operational Context Engine can include structured human inputs without fre
   const context = buildOperationalContext({
     data,
     insight,
-    inputs: [{ id: "input-1", assetId: "EP01", date: "2026-06-21", plannedHours: 8, downtimeHours: 1, fuelQuantity: 12, fuelUnit: "L", costBRL: 150, production: 42, productionUnit: "movimentos", note: "texto livre que não deve sair" }],
+    inputs: [{ id: "input-1", assetId: "EP01", date: "2026-06-21", plannedHours: 8, downtimeHours: 1, fuelQuantity: 12, fuelUnit: "L", costBRL: 150, production: 42, productionUnit: "movimentos", usageContext: "maintenance", note: "texto livre que não deve sair" }],
     orders: [{ id: "order-1", assetId: "EP01", title: "Inspeção", kind: "operational", priority: "high", team: "Operação", dueDate: "2026-06-25", status: "open", openedAt: "2026-06-21T12:00:00.000Z", completedAt: null, note: "nota privada", history: [] }]
   });
   assert.equal(context.availability.demandOrProduction, true);
   assert.equal(context.management.sameDayInput?.production, 42);
   assert.equal(context.management.openOrders, 1);
+  assert.equal(context.management.sameDayInput?.usageContext, "maintenance");
   const serialized = JSON.stringify(context);
   assert.equal(serialized.includes("texto livre"), false);
   assert.equal(serialized.includes("nota privada"), false);

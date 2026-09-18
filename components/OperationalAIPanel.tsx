@@ -136,6 +136,20 @@ export default function OperationalAIPanel({ data, assetFilter = "all", cardFilt
           </div>
         </article>
 
+        {selectedContext?.monthlyTrend && <article className="contextEvidence">
+          <div className="sectionHeading"><div><span className="sectionEyebrow">EVOLUÇÃO MENSAL</span><h3>{selectedContext.monthlyTrend.previousMonth ? `${selectedContext.monthlyTrend.previousMonth} → ${selectedContext.monthlyTrend.currentMonth}` : selectedContext.monthlyTrend.currentMonth}</h3></div><span className="scopeChip">Workforce mensal</span></div>
+          <div className="contextFacts">
+            <span><strong>{selectedContext.monthlyTrend.activity.workPct.delta == null ? "—" : `${selectedContext.monthlyTrend.activity.workPct.delta > 0 ? "+" : ""}${fmt(selectedContext.monthlyTrend.activity.workPct.delta)} p.p.`}</strong>trabalho/chave</span>
+            <span><strong>{selectedContext.monthlyTrend.activity.hydraulicPct.delta == null ? "—" : `${selectedContext.monthlyTrend.activity.hydraulicPct.delta > 0 ? "+" : ""}${fmt(selectedContext.monthlyTrend.activity.hydraulicPct.delta)} p.p.`}</strong>função hidráulica</span>
+            <span><strong>{selectedContext.monthlyTrend.activity.motionPct.delta == null ? "—" : `${selectedContext.monthlyTrend.activity.motionPct.delta > 0 ? "+" : ""}${fmt(selectedContext.monthlyTrend.activity.motionPct.delta)} p.p.`}</strong>movimento</span>
+            <span><strong>{fmt(selectedContext.monthlyTrend.travelSafety.reverseSharePct.current)}%</strong>ré na marcha</span>
+            <span><strong>{fmt(selectedContext.monthlyTrend.travelSafety.highSpeedSharePct.current)}%</strong>alta velocidade/movimento</span>
+            <span><strong>{fmt(selectedContext.monthlyTrend.travelSafety.overspeedSharePct.current)}%</strong>overspeed/movimento</span>
+          </div>
+          <p><small>Preferência operacional informada: maior uso de ré. Alta velocidade é contexto; overspeed só é tratado como tal quando marcado pela origem. Workforce não possui hora por uso, portanto esses indicadores não são atribuídos aos turnos.</small></p>
+          <p><small>Impactos no mês por turno: A {selectedContext.monthlyTrend.travelSafety.impactsByShift.A} · B {selectedContext.monthlyTrend.travelSafety.impactsByShift.B} · C {selectedContext.monthlyTrend.travelSafety.impactsByShift.C}.</small></p>
+        </article>}
+
         {selectedProfile && <article className="contextEvidence">
           <div className="sectionHeading"><div><span className="sectionEyebrow">PERFIL OPERACIONAL</span><h3>{selectedProfile.assetId}</h3></div><span className="scopeChip">{selectedProfile.periodStart} → {selectedProfile.periodEnd}</span></div>
           <div className="contextFacts">
