@@ -348,7 +348,6 @@ export default function HysterDashboard() {
 
   const topImpact = [...fleetRows].sort((a, b) => b.impacts - a.impacts || b.faults - a.faults)[0];
   const lowestWork = [...fleetRows].filter((row) => row.workPct != null).sort((a, b) => (a.workPct ?? 0) - (b.workPct ?? 0))[0];
-  const highestIdle = [...fleetRows].filter((row) => row.idlePct != null).sort((a, b) => (b.idlePct ?? 0) - (a.idlePct ?? 0))[0];
 
   function assistantCopy() {
     if (assistMode === "productivity") {
@@ -495,7 +494,7 @@ export default function HysterDashboard() {
             </div>
             <div className="fleetDataGrid">
               <table>
-                <thead><tr><th>Equipamento</th><th>Trabalho</th><th>Hidráulica</th><th>Movimento</th><th>Marcha</th><th>Ocioso</th><th>Impactos</th><th></th></tr></thead>
+                <thead><tr><th>Equipamento</th><th>Trabalho</th><th>Função hidráulica</th><th>Movimento</th><th>Marcha</th><th>Ocioso</th><th>Impactos</th><th></th></tr></thead>
                 <tbody>{fleetRows.map((row) => {
                   const isSelected = selectedFleet?.assetId === row.assetId;
                   const isExpanded = expandedAsset === row.assetId;
