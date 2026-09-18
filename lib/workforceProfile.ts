@@ -1,4 +1,5 @@
 import {
+  workforceCardSlices,
   workforceMetricKeys,
   workforceMetricLabels,
   type HysterData,
@@ -147,10 +148,12 @@ function normalizedValue(metric: WorkforceMetricKey, metrics: WorkforceMetrics, 
   return { value: raw / key * 100, unit: "%", normalizedBy: "chave" };
 }
 
-export function analyzeWorkforceProfiles(data: HysterData, cardCode?: string): WorkforceProfileResult | undefined {
+export function analyzeWorkforceProfiles(data: HysterData, cardCode?: string, rangeStart = data.periodStart, rangeEnd = data.periodEnd): WorkforceProfileResult | undefined {
   if (!data.workforce) return undefined;
 
-  const cards = data.workforce.cards.filter((card) =>
+  const slices = workforceCardSlices(data, rangeStart, rangeEnd);
+  if (!slices.length) return undefined;
+  const cards = slices.flatMap((slice) => slice.cards).filter((card) =>
     card.cardQuality === "complete" && (!cardCode || card.cardCode === cardCode)
   );
 
@@ -220,8 +223,8 @@ export function analyzeWorkforceProfiles(data: HysterData, cardCode?: string): W
     const signals = [...metrics].sort((a, b) => Math.abs(b.zScore) - Math.abs(a.zScore)).slice(0, 3);
     return {
       assetId: asset.assetId,
-      periodStart: data.workforce!.periodStart,
-      periodEnd: data.workforce!.periodEnd,
+      periodStart: slices[0].periodStart,
+      periodEnd: slices.at(-1)!.periodEnd,
       usageCount: asset.usageCount,
       coverageSlices: asset.coverageSlices,
       activeMetricCount: metrics.length,
@@ -235,8 +238,8 @@ export function analyzeWorkforceProfiles(data: HysterData, cardCode?: string): W
   });
 
   return {
-    periodStart: data.workforce.periodStart,
-    periodEnd: data.workforce.periodEnd,
+    periodStart: slices[0].periodStart,
+    periodEnd: slices.at(-1)!.periodEnd,
     configuredMetricCount: workforceMetricKeys.length,
     activeMetricCount: normalized.size,
     excludedMetrics,
