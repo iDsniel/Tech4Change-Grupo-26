@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "test:hyster": "node --experimental-strip-types --test tests/hyster.test.ts tests/operations.test.ts tests/operational-ai.test.ts"
+    "test:hyster": "node --experimental-strip-types --test tests/hyster.test.ts tests/operations.test.ts tests/operational-ai.test.ts tests/kone-demo.test.ts"
   },
   "dependencies": {
     "next": "16.3.4",
