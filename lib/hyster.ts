@@ -127,16 +127,35 @@ export type WorkforceMetricAvailability = {
   totalAcrossCards: number;
 };
 
-export type WorkforceData = {
+export type WorkforcePeriodData = {
   periodStart: string;
   periodEnd: string;
-  granularity: "card-period";
-  unitSystem: "metric";
+  granularity: "card-month";
   sourceFile: string;
   sha256: string;
   cards: WorkforceCard[];
   metricAvailability?: Partial<Record<WorkforceMetricKey, WorkforceMetricAvailability>>;
   warnings: string[];
+};
+
+export type WorkforceData = {
+  periodStart: string;
+  periodEnd: string;
+  granularity: "card-period" | "card-month";
+  unitSystem: "metric";
+  sourceFile?: string;
+  sha256?: string;
+  cards?: WorkforceCard[];
+  periods?: WorkforcePeriodData[];
+  metricAvailability?: Partial<Record<WorkforceMetricKey, WorkforceMetricAvailability>>;
+  warnings: string[];
+};
+
+export type WorkforceCardSlice = {
+  periodStart: string;
+  periodEnd: string;
+  granularity: "card-period" | "card-month";
+  cards: WorkforceCard[];
 };
 
 export type LegacyData = {
@@ -369,10 +388,36 @@ function validateMetricAvailability(value: WorkforceData["metricAvailability"]) 
   }
 }
 
+function validateWorkforceCards(cards: WorkforceCard[], ids: Set<string>) {
+  if (!Array.isArray(cards) || cards.length > 10000) throw new Error("Cartões Workforce inválidos.");
+  const rowIds = new Set<number>();
+  const codeRows = new Map<string, WorkforceCard[]>();
+  for (const card of cards) {
+    if (!card || !["complete", "incomplete", "ambiguous"].includes(card.cardQuality) || !Number.isInteger(card.sourceRow) || card.sourceRow < 1 || !Number.isInteger(card.usageCount) || card.usageCount < 0 || !Array.isArray(card.assets)) throw new Error("Cartão Workforce inválido.");
+    if (rowIds.has(card.sourceRow)) throw new Error("Linha Workforce duplicada no mesmo período.");
+    rowIds.add(card.sourceRow);
+    if (card.operatorName !== undefined && card.operatorName !== null && !safeText(card.operatorName, 200)) throw new Error("Nome de operador inválido.");
+    if (card.cardQuality === "incomplete") {
+      if (card.cardCode !== null) throw new Error("Código Workforce incompleto deve permanecer nulo.");
+    } else if (!validCardCode(card.cardCode)) throw new Error("Código Workforce inválido.");
+    validateWorkforceMetrics(card.metrics);
+    validateStatistics(card.statistics);
+    const cardAssetIds = new Set<string>();
+    for (const asset of card.assets) {
+      if (!asset || !ids.has(asset.assetId) || cardAssetIds.has(asset.assetId) || !Number.isInteger(asset.usageCount) || asset.usageCount < 0 || !Number.isInteger(asset.sourceRow) || asset.sourceRow < 1) throw new Error("Recorte Workforce por equipamento inválido.");
+      cardAssetIds.add(asset.assetId);
+      validateWorkforceMetrics(asset.metrics);
+      validateStatistics(asset.statistics);
+    }
+    if (card.cardCode) codeRows.set(card.cardCode, [...(codeRows.get(card.cardCode) ?? []), card]);
+  }
+  for (const rows of codeRows.values()) if (rows.length > 1 && rows.some((row) => row.cardQuality !== "ambiguous")) throw new Error("Código Workforce duplicado sem sinalização de ambiguidade.");
+}
+
 // Fail closed before rendering imported files. Never interpret arbitrary JSON as telemetry.
 export function validateHyster(value: unknown): HysterData {
   const d = value as HysterData;
-  if (!d || ![1, 2, 3, 4].includes(d.schemaVersion) || d.provider !== "Hyster Tracker" || !isDate(d.periodStart) || !isDate(d.periodEnd) || d.periodStart > d.periodEnd) throw new Error("Formato ou período Hyster inválido.");
+  if (!d || ![1, 2, 3, 4, 5].includes(d.schemaVersion) || d.provider !== "Hyster Tracker" || !isDate(d.periodStart) || !isDate(d.periodEnd) || d.periodStart > d.periodEnd) throw new Error("Formato ou período Hyster inválido.");
   if (d.operationId !== undefined && !/^[a-f0-9]{16}$/.test(d.operationId)) throw new Error("Operação inválida.");
 
   for (const key of ["assets", "daily", "events", "kpi", "currentStatus", "fuel", "costs", "sources"] as const) {
@@ -416,30 +461,26 @@ export function validateHyster(value: unknown): HysterData {
 
   if (d.workforce) {
     const w = d.workforce;
-    if (d.schemaVersion < 3 || !isDate(w.periodStart) || !isDate(w.periodEnd) || w.periodStart > w.periodEnd || w.periodStart < d.periodStart || w.periodEnd > d.periodEnd || w.granularity !== "card-period" || w.unitSystem !== "metric" || typeof w.sourceFile !== "string" || !/^[a-f0-9]{64}$/.test(w.sha256) || !Array.isArray(w.cards) || w.cards.length > 10000 || !Array.isArray(w.warnings) || w.warnings.some((item) => typeof item !== "string")) throw new Error("Workforce KPI inválido.");
-    validateMetricAvailability(w.metricAvailability);
-    const rowIds = new Set<number>();
-    const codeRows = new Map<string, WorkforceCard[]>();
-    for (const card of w.cards) {
-      if (!card || !["complete", "incomplete", "ambiguous"].includes(card.cardQuality) || !Number.isInteger(card.sourceRow) || card.sourceRow < 1 || !Number.isInteger(card.usageCount) || card.usageCount < 0 || !Array.isArray(card.assets)) throw new Error("Cartão Workforce inválido.");
-      if (rowIds.has(card.sourceRow)) throw new Error("Linha Workforce duplicada.");
-      rowIds.add(card.sourceRow);
-      if (card.operatorName !== undefined && card.operatorName !== null && !safeText(card.operatorName, 200)) throw new Error("Nome de operador inválido.");
-      if (card.cardQuality === "incomplete") {
-        if (card.cardCode !== null) throw new Error("Código Workforce incompleto deve permanecer nulo.");
-      } else if (!validCardCode(card.cardCode)) throw new Error("Código Workforce inválido.");
-      validateWorkforceMetrics(card.metrics);
-      validateStatistics(card.statistics);
-      const cardAssetIds = new Set<string>();
-      for (const asset of card.assets) {
-        if (!asset || !ids.has(asset.assetId) || cardAssetIds.has(asset.assetId) || !Number.isInteger(asset.usageCount) || asset.usageCount < 0 || !Number.isInteger(asset.sourceRow) || asset.sourceRow < 1) throw new Error("Recorte Workforce por equipamento inválido.");
-        cardAssetIds.add(asset.assetId);
-        validateWorkforceMetrics(asset.metrics);
-        validateStatistics(asset.statistics);
+    if (d.schemaVersion < 3 || !isDate(w.periodStart) || !isDate(w.periodEnd) || w.periodStart > w.periodEnd || w.periodStart < d.periodStart || w.periodEnd > d.periodEnd || w.unitSystem !== "metric" || !Array.isArray(w.warnings) || w.warnings.some((item) => typeof item !== "string")) throw new Error("Workforce KPI inválido.");
+
+    if (w.granularity === "card-period") {
+      if (typeof w.sourceFile !== "string" || !/^[a-f0-9]{64}$/.test(w.sha256 ?? "") || !Array.isArray(w.cards)) throw new Error("Workforce KPI legado inválido.");
+      validateMetricAvailability(w.metricAvailability);
+      validateWorkforceCards(w.cards, ids);
+    } else if (w.granularity === "card-month") {
+      if (d.schemaVersion < 5 || !Array.isArray(w.periods) || !w.periods.length || w.periods.length > 36) throw new Error("Workforce KPI mensal inválido.");
+      const sorted = [...w.periods].sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+      for (let index = 0; index < sorted.length; index += 1) {
+        const period = sorted[index];
+        if (!period || period.granularity !== "card-month" || !isDate(period.periodStart) || !isDate(period.periodEnd) || period.periodStart > period.periodEnd || period.periodStart < w.periodStart || period.periodEnd > w.periodEnd || typeof period.sourceFile !== "string" || !/^[a-f0-9]{64}$/.test(period.sha256) || !Array.isArray(period.warnings) || period.warnings.some((item) => typeof item !== "string")) throw new Error("Período Workforce mensal inválido.");
+        if (index > 0 && sorted[index - 1].periodEnd >= period.periodStart) throw new Error("Períodos Workforce mensais sobrepostos.");
+        validateMetricAvailability(period.metricAvailability);
+        validateWorkforceCards(period.cards, ids);
       }
-      if (card.cardCode) codeRows.set(card.cardCode, [...(codeRows.get(card.cardCode) ?? []), card]);
+      if (sorted[0].periodStart !== w.periodStart || sorted.at(-1)!.periodEnd !== w.periodEnd) throw new Error("Cobertura Workforce mensal inconsistente.");
+    } else {
+      throw new Error("Granularidade Workforce inválida.");
     }
-    for (const rows of codeRows.values()) if (rows.length > 1 && rows.some((row) => row.cardQuality !== "ambiguous")) throw new Error("Código Workforce duplicado sem sinalização de ambiguidade.");
   }
 
   if (d.legacy) {
@@ -471,8 +512,23 @@ export function totals(rows: Daily[]) {
   return { key, idle, work, idlePct: ratio(idle, key), workPct: ratio(work, key), records: rows.length };
 }
 
-export function workforceStatistic(data: HysterData, cardCode: string, metric: WorkforceMetricKey, assetId = "all") {
-  const rows = data.workforce?.cards.filter((row) => row.cardCode === cardCode && row.cardQuality === "complete") ?? [];
+export function workforceCardSlices(data: HysterData, start = data.periodStart, end = data.periodEnd): WorkforceCardSlice[] {
+  const workforce = data.workforce;
+  if (!workforce) return [];
+  if (workforce.granularity === "card-month") {
+    return (workforce.periods ?? [])
+      .filter((period) => period.periodEnd >= start && period.periodStart <= end)
+      .map((period) => ({ periodStart: period.periodStart, periodEnd: period.periodEnd, granularity: "card-month" as const, cards: period.cards }));
+  }
+  return workforce.cards && workforce.periodEnd >= start && workforce.periodStart <= end
+    ? [{ periodStart: workforce.periodStart, periodEnd: workforce.periodEnd, granularity: "card-period" as const, cards: workforce.cards }]
+    : [];
+}
+
+export function workforceStatistic(data: HysterData, cardCode: string, metric: WorkforceMetricKey, assetId = "all", period?: string) {
+  const slices = workforceCardSlices(data, period ? `${period}-01` : data.periodStart, period ? `${period}-31` : data.periodEnd);
+  if (slices.length !== 1) return undefined;
+  const rows = slices[0].cards.filter((row) => row.cardCode === cardCode && row.cardQuality === "complete");
   if (rows.length !== 1) return undefined;
   if (assetId === "all") return rows[0].statistics?.[metric];
   return rows[0].assets.find((row) => row.assetId === assetId)?.statistics?.[metric];
