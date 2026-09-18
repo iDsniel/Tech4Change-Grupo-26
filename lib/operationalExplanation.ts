@@ -70,7 +70,7 @@ function contextSentence(packet: OperationalAIInsight | OperationalExplanationPa
   const context = packet.context;
   const pieces: string[] = [];
   const aggregate = context.aggregateTelemetry;
-  if (aggregate?.ratios.hydraulicPct != null) pieces.push(`hidráulica ${Math.round(aggregate.ratios.hydraulicPct)}% da chave`);
+  if (aggregate?.ratios.hydraulicPct != null) pieces.push(`função hidráulica ${Math.round(aggregate.ratios.hydraulicPct)}% da chave`);
   if (aggregate?.ratios.motionPct != null) pieces.push(`movimento ${Math.round(aggregate.ratios.motionPct)}% da chave`);
   if (aggregate?.ratios.marchPct != null) pieces.push(`marcha ${Math.round(aggregate.ratios.marchPct)}% da chave`);
   const input = context.management.sameDayInput;
@@ -82,7 +82,20 @@ function contextSentence(packet: OperationalAIInsight | OperationalExplanationPa
       : ` No agregado disponível de ${aggregate.periodStart} a ${aggregate.periodEnd}, ${pieces.filter((item) => !item.startsWith("produção")).join(", ")}.`
     : "";
   const dailyLabel = input?.production != null ? ` No mesmo dia, houve apontamento de produção de ${Math.round(input.production)} ${input.productionUnit}.` : "";
-  return `${aggregateLabel}${dailyLabel}`;
+  const trend = context.monthlyTrend;
+  const trendPieces: string[] = [];
+  if (trend?.previousMonth) {
+    for (const [label, metric] of [
+      ["trabalho", trend.activity.workPct],
+      ["função hidráulica", trend.activity.hydraulicPct],
+      ["movimento", trend.activity.motionPct],
+      ["ociosidade", trend.activity.idlePct]
+    ] as const) {
+      if (metric.delta != null) trendPieces.push(`${label} ${metric.delta > 0 ? "subiu" : metric.delta < 0 ? "caiu" : "ficou estável"} ${Math.abs(Math.round(metric.delta))} p.p.`);
+    }
+  }
+  const trendLabel = trendPieces.length ? ` Em relação a ${trend?.previousMonth}, ${trendPieces.join(", ")}.` : "";
+  return `${aggregateLabel}${trendLabel}${dailyLabel}`;
 }
 
 export function deterministicOperationalExplanation(insight: OperationalAIInsight | OperationalExplanationPacket): OperationalExplanation {
@@ -95,7 +108,7 @@ export function deterministicOperationalExplanation(insight: OperationalAIInsigh
   let whyItMatters = "Essa diferença pode ajudar a encontrar mais rápido onde vale investigar antes de decidir uma ação.";
   if (insight.category === "safety") whyItMatters = "Impactos precisam ser contextualizados com rota, piso, carga e condição do equipamento antes de qualquer conclusão.";
   if (insight.category === "reliability") whyItMatters = "Falhas concentradas podem afetar disponibilidade e merecem confronto com inspeção e histórico de manutenção.";
-  if (context && !context.availability.demandOrProduction && insight.category === "efficiency") whyItMatters = "Sem dado de demanda ou produção do dia, o Pulso não consegue separar automaticamente baixa atividade de baixa demanda; a leitura serve para direcionar a verificação humana.";
+  if (context && !context.availability.demandOrProduction && insight.category === "efficiency") whyItMatters = "Sem dado de pallets/demanda e sem contexto de uso quando não informado, o Pulso não consegue separar automaticamente baixa atividade de menor demanda ou uso pela manutenção; a leitura serve para direcionar a verificação humana.";
 
   const scopeWarning = context?.aggregateTelemetry
     ? context.aggregateTelemetry.granularity === "asset-month"
