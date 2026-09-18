@@ -32,6 +32,8 @@ import {
   type OperationalAIInsight
 } from "@/lib/operationalAI";
 import { analyzeWorkforceProfiles, type WorkforceAssetProfile } from "@/lib/workforceProfile";
+import { monthlyBusinessSnapshots } from "@/lib/monthlyContext";
+import { currentOperationProfile } from "@/lib/operationProfile";
 import { addDataset, combineDatasets, emptyWorkspace, validateWorkspace, type Workspace } from "@/lib/operations";
 import { readWorkspace, saveWorkspace } from "@/lib/operationsStorage";
 import OperationsConsole from "./OperationsConsole";
@@ -46,6 +48,8 @@ const pct = (value: number | null | undefined) => value == null ? "n/d" : `${fmt
 const ratio = (numerator: number | undefined, denominator: number | undefined) => numerator != null && denominator != null && denominator > 0 ? numerator / denominator * 100 : undefined;
 const between = (value: string, start: string, end: string) => value >= start && value <= end;
 const clampPct = (value: number | null | undefined) => Math.max(0, Math.min(100, value ?? 0));
+const deltaText = (value: number | null | undefined) => value == null ? "—" : `${value > 0 ? "+" : ""}${Math.round(value)} p.p.`;
+const monthLabel = (value: string) => new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(new Date(`${value}-15T12:00:00`)).replace(".", "");
 
 type AssistMode = "summary" | "productivity" | "impacts" | "compare";
 type FleetSort = "attention" | "work" | "idle" | "impacts";
@@ -335,6 +339,12 @@ export default function HysterDashboard() {
   const selectedInsight = selectedFleet
     ? filteredAI.find((insight) => insight.assetId === selectedFleet.assetId) ?? filteredAI[0]
     : filteredAI[0];
+  const selectedMonthly = selectedFleet
+    ? monthlyBusinessSnapshots(data, selectedFleet.assetId, card, workspace.inputs)
+        .filter((item) => item.periodEnd >= activeFrom && item.periodStart <= activeTo)
+    : [];
+  const currentMonthly = selectedMonthly.at(-1);
+  const previousMonthly = selectedMonthly.length > 1 ? selectedMonthly.at(-2) : undefined;
 
   const topImpact = [...fleetRows].sort((a, b) => b.impacts - a.impacts || b.faults - a.faults)[0];
   const lowestWork = [...fleetRows].filter((row) => row.workPct != null).sort((a, b) => (a.workPct ?? 0) - (b.workPct ?? 0))[0];
@@ -356,8 +366,14 @@ export default function HysterDashboard() {
       return `${topImpact.assetId} concentra ${topImpact.impacts} impacto(s) no filtro atual. O evento merece contexto de rota, piso, carga e condição do equipamento antes de qualquer conclusão.`;
     }
     if (assistMode === "compare") {
-      if (!lowestWork || !highestIdle) return "Selecione um contexto com mais de um equipamento para comparar o comportamento da frota.";
-      return `Na comparação descritiva, ${lowestWork.assetId} tem menor trabalho/chave (${pct(lowestWork.workPct)}) e ${highestIdle.assetId} maior ociosidade/chave (${pct(highestIdle.idlePct)}). Use a investigação para entender o contexto; isso não é ranking de operador.`;
+      if (!currentMonthly || !previousMonthly) return "O comparador mensal precisa de pelo menos dois meses do mesmo equipamento no contexto selecionado.";
+      const changes = [
+        currentMonthly.activity.workPct != null && previousMonthly.activity.workPct != null ? `trabalho ${deltaText(currentMonthly.activity.workPct - previousMonthly.activity.workPct)}` : "",
+        currentMonthly.activity.hydraulicPct != null && previousMonthly.activity.hydraulicPct != null ? `função hidráulica ${deltaText(currentMonthly.activity.hydraulicPct - previousMonthly.activity.hydraulicPct)}` : "",
+        currentMonthly.activity.motionPct != null && previousMonthly.activity.motionPct != null ? `movimento ${deltaText(currentMonthly.activity.motionPct - previousMonthly.activity.motionPct)}` : "",
+        currentMonthly.activity.idlePct != null && previousMonthly.activity.idlePct != null ? `ociosidade ${deltaText(currentMonthly.activity.idlePct - previousMonthly.activity.idlePct)}` : ""
+      ].filter(Boolean);
+      return `${selectedFleet?.assetId}: de ${monthLabel(previousMonthly.month)} para ${monthLabel(currentMonthly.month)}, ${changes.join(", ")}. A mudança descreve atividade registrada; sem pallets/demanda e contexto de uso, não prova ganho ou perda de produtividade.`;
     }
     if (selectedInsight) return `${selectedInsight.assetId}: ${plainInsight(selectedInsight)} O Pulso separou este contexto para reduzir o tempo gasto procurando onde olhar primeiro.`;
     return filteredAI.length
@@ -369,7 +385,7 @@ export default function HysterDashboard() {
 
   const kpis = [
     { label: "Trabalho / chave", value: pct(displayedWorkPct), meter: displayedWorkPct, detail: cardScoped ? "agregado do cartão" : `${fmt(totals.work)} h no período`, icon: <Gauge size={18} /> },
-    { label: "Hidráulica / chave", value: pct(workforceScope?.hydraulicPct), meter: workforceScope?.hydraulicPct, detail: "elevação, descida e inclinação hidráulica", icon: <ArrowUpDown size={18} /> },
+    { label: "Função hidráulica", value: pct(workforceScope?.hydraulicPct), meter: workforceScope?.hydraulicPct, detail: "atividade de elevação · descida · auxiliar", icon: <ArrowUpDown size={18} /> },
     { label: "Movimento / chave", value: pct(workforceScope?.motionPct), meter: workforceScope?.motionPct, detail: "tempo em movimento", icon: <Move size={18} /> },
     { label: "Marcha / chave", value: pct(workforceScope?.marchPct), meter: workforceScope?.marchPct, detail: workforceScope?.forwardShare != null && workforceScope.reverseShare != null ? `${fmt(workforceScope.forwardShare)}% frente · ${fmt(workforceScope.reverseShare)}% ré` : "frente/ré indisponível", icon: <ArrowLeftRight size={18} /> },
     { label: "Ociosidade / chave", value: pct(displayedIdlePct), meter: displayedIdlePct, detail: cardScoped ? "agregado do cartão" : `${fmt(totals.idle)} h no período`, icon: <PauseCircle size={18} /> },
@@ -435,6 +451,41 @@ export default function HysterDashboard() {
           <div className="sortControl"><span>Ordenar frota</span><select value={fleetSort} onChange={(event) => setFleetSort(event.target.value as FleetSort)}><option value="attention">Atenção</option><option value="work">Trabalho/chave</option><option value="idle">Ociosidade</option><option value="impacts">Impactos</option></select></div>
         </div>
 
+        {selectedFleet && selectedMonthly.length > 0 && <section className="monthlyBusinessPanel">
+          <div className="monthlyBusinessHeader">
+            <div>
+              <span className="sectionEyebrow">EVOLUÇÃO MENSAL · {selectedFleet.assetId}</span>
+              <h3>Atividade operacional e segurança de deslocamento</h3>
+              <p>Sem índice sintético: o Pulso mostra sinais observados separadamente para preservar a leitura do negócio.</p>
+            </div>
+            <div className="businessContextTags">
+              <span>fluxo principal · {currentOperationProfile.primaryMaterialFlow}</span>
+              <span>uso também pela manutenção</span>
+              <span>turnos A 07–15 · B 15–23 · C 23–07</span>
+            </div>
+          </div>
+          <div className="monthlyBusinessTableWrap">
+            <table className="monthlyBusinessTable">
+              <thead><tr><th>Indicador</th>{selectedMonthly.map((item) => <th key={item.month}>{monthLabel(item.month)}</th>)}<th>Última variação</th></tr></thead>
+              <tbody>
+                <tr><th><strong>Trabalho / chave</strong><small>atividade registrada</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.activity.workPct)}</td>)}<td>{currentMonthly && previousMonthly && currentMonthly.activity.workPct != null && previousMonthly.activity.workPct != null ? deltaText(currentMonthly.activity.workPct - previousMonthly.activity.workPct) : "—"}</td></tr>
+                <tr><th><strong>Função hidráulica / chave</strong><small>elevação · descida · auxiliar</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.activity.hydraulicPct)}</td>)}<td>{currentMonthly && previousMonthly && currentMonthly.activity.hydraulicPct != null && previousMonthly.activity.hydraulicPct != null ? deltaText(currentMonthly.activity.hydraulicPct - previousMonthly.activity.hydraulicPct) : "—"}</td></tr>
+                <tr><th><strong>Movimento / chave</strong><small>deslocamento registrado</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.activity.motionPct)}</td>)}<td>{currentMonthly && previousMonthly && currentMonthly.activity.motionPct != null && previousMonthly.activity.motionPct != null ? deltaText(currentMonthly.activity.motionPct - previousMonthly.activity.motionPct) : "—"}</td></tr>
+                <tr><th><strong>Ociosidade / chave</strong><small>contexto de atividade</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.activity.idlePct)}</td>)}<td>{currentMonthly && previousMonthly && currentMonthly.activity.idlePct != null && previousMonthly.activity.idlePct != null ? deltaText(currentMonthly.activity.idlePct - previousMonthly.activity.idlePct) : "—"}</td></tr>
+                <tr className="safetyRow"><th><strong>Ré na marcha</strong><small>preferência operacional informada: maior uso de ré</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.travelSafety.reverseSharePct)}<small>{item.travelSafety.forwardSharePct == null ? "" : ` · frente ${fmt(item.travelSafety.forwardSharePct)}%`}</small></td>)}<td>{currentMonthly && previousMonthly && currentMonthly.travelSafety.reverseSharePct != null && previousMonthly.travelSafety.reverseSharePct != null ? deltaText(currentMonthly.travelSafety.reverseSharePct - previousMonthly.travelSafety.reverseSharePct) : "—"}</td></tr>
+                <tr className="safetyRow"><th><strong>Alta velocidade / movimento</strong><small>critério de segurança; não é violação por si só</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.travelSafety.highSpeedSharePct)}</td>)}<td>{currentMonthly && previousMonthly && currentMonthly.travelSafety.highSpeedSharePct != null && previousMonthly.travelSafety.highSpeedSharePct != null ? deltaText(currentMonthly.travelSafety.highSpeedSharePct - previousMonthly.travelSafety.highSpeedSharePct) : "—"}</td></tr>
+                <tr className="safetyRow"><th><strong>Overspeed / movimento</strong><small>tempo marcado pela origem como excesso de velocidade</small></th>{selectedMonthly.map((item) => <td key={item.month}>{pct(item.travelSafety.overspeedSharePct)}</td>)}<td>{currentMonthly && previousMonthly && currentMonthly.travelSafety.overspeedSharePct != null && previousMonthly.travelSafety.overspeedSharePct != null ? deltaText(currentMonthly.travelSafety.overspeedSharePct - previousMonthly.travelSafety.overspeedSharePct) : "—"}</td></tr>
+                <tr className="safetyRow"><th><strong>Impactos</strong><small>eventos com horário permitem recorte por turno</small></th>{selectedMonthly.map((item) => <td key={item.month}><strong>{item.events.impacts}</strong><small>A {item.events.byShift.A.impacts} · B {item.events.byShift.B.impacts} · C {item.events.byShift.C.impacts}</small></td>)}<td>{currentMonthly && previousMonthly ? `${currentMonthly.events.impacts - previousMonthly.events.impacts > 0 ? "+" : ""}${currentMonthly.events.impacts - previousMonthly.events.impacts}` : "—"}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="businessAvailability">
+            <div><strong>Produtividade do negócio</strong><span>{currentMonthly?.business.production.pallets != null ? `${fmt(currentMonthly.business.production.pallets)} pallets apontados` : "Pallets movimentados não estão nas fontes atuais. Sem esse dado, o Pulso não calcula pallets/h."}</span></div>
+            <div><strong>Custo</strong><span>{currentMonthly?.business.costPerPallet != null ? `R$ ${currentMonthly.business.costPerPallet.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} por pallet` : "Custo realizado não está disponível na base atual. O Pulso não estima custo ou economia."}</span></div>
+            <div><strong>Produção × manutenção</strong><span>As empilhadeiras também atendem manutenção. Como a telemetria não identifica esse contexto, use o apontamento estruturado Produção / Manutenção / Misto.</span></div>
+          </div>
+        </section>}
+
         <ResizableSplit
           className="operationsCopilotSplit"
           left={<section className="fleetWorkspace">
@@ -498,7 +549,7 @@ export default function HysterDashboard() {
               <button className={assistMode === "summary" ? "active" : ""} type="button" onClick={() => setAssistMode("summary")}>Resumo</button>
               <button className={assistMode === "productivity" ? "active" : ""} type="button" onClick={() => setAssistMode("productivity")}>Produtividade</button>
               <button className={assistMode === "impacts" ? "active" : ""} type="button" onClick={() => { setAssistMode("impacts"); if (topImpact) setSelectedAssetId(topImpact.assetId); }}>Impactos</button>
-              <button className={assistMode === "compare" ? "active" : ""} type="button" onClick={() => setAssistMode("compare")}>Comparar ativos</button>
+              <button className={assistMode === "compare" ? "active" : ""} type="button" onClick={() => setAssistMode("compare")}>Evolução mensal</button>
             </div>
 
             <article className="copilotReading">
@@ -508,7 +559,7 @@ export default function HysterDashboard() {
 
             {selectedFleet && <div className="copilotFacts">
               <div><span>Trabalho</span><strong>{pct(selectedFleet.workPct)}</strong></div>
-              <div><span>Hidráulica</span><strong>{pct(selectedFleet.hydraulicPct)}</strong></div>
+              <div><span>Função hidráulica</span><strong>{pct(selectedFleet.hydraulicPct)}</strong></div>
               <div><span>Movimento</span><strong>{pct(selectedFleet.motionPct)}</strong></div>
               <div><span>Impactos</span><strong>{selectedFleet.impacts}</strong></div>
             </div>}
