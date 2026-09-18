@@ -39,29 +39,4 @@ jobs:
           grep -q 'demoFocus' app/demo-mode.css
           grep -q 'DemoMode' app/layout.tsx
 
-          npm run start > /tmp/tech4change-demo.log 2>&1 &
-          APP_PID=$!
-          trap 'kill $APP_PID || true' EXIT
-
-          for attempt in {1..20}; do
-            if curl -fsS http://127.0.0.1:3000 -o /tmp/home.html; then
-              break
-            fi
-            sleep 1
-          done
-
-          test -s /tmp/home.html
-
-          curl -fsS http://127.0.0.1:3000/api/demo/kone -o /tmp/kone-demo.json
-          node <<'NODE'
-          const payload = require('/tmp/kone-demo.json');
-          if (payload.source?.provider !== 'Konecranes') throw new Error('Konecranes provider missing');
-          if (payload.scenario?.truckCapacityT !== 16) throw new Error('16 t scenario missing');
-          if (payload.scenario?.baleWeightT !== 2 || payload.scenario?.balesPerLoadedMovement !== 2) throw new Error('Bale movement assumption missing');
-          const kinds = new Set(payload.insights?.map((item) => item.category));
-          if (!kinds.has('productivity')) throw new Error('Productivity scenario unavailable');
-          if (!kinds.has('safety')) throw new Error('Safety scenario unavailable');
-          if (!kinds.has('maintenance')) throw new Error('Maintenance scenario unavailable');
-          if (!payload.source?.unsupportedInPublicReferenceUsed?.includes('forward/reverse share')) throw new Error('Multi-OEM capability guardrail missing');
-          console.log(JSON.stringify({ demoMode: true, provider: payload.source.provider, insights: payload.insights.length, categories: [...kinds] }));
-          NODE
+          node --experimental-strip-types --test tests/kone-demo.test.ts
