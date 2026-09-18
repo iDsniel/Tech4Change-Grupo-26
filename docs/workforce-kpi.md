@@ -16,14 +16,16 @@ O Pulso preserva o **código do cartão como texto**. O nome do operador mostrad
 
 ## Granularidade
 
-A granularidade do Workforce é `card-period`.
+A granularidade atual do Workforce é **mensal real** (`card-month`).
 
-Existem dois níveis preservados:
+Cada arquivo representa um mês fechado e preserva dois níveis:
 
-1. cartão × período;
-2. cartão × equipamento × período.
+1. cartão × mês;
+2. cartão × equipamento × mês.
 
-Filtros diários/mensais não rateiam esses números. O Pulso só mostra o total ou as médias que a própria Hyster reportou para o intervalo original.
+Para a base atual existem três períodos independentes: junho, julho e agosto/2026. O mesmo cartão pode aparecer em meses diferentes sem ser considerado duplicado.
+
+O Pulso pode somar meses inteiros quando o filtro cobre mais de um mês. Se o usuário selecionar apenas parte de um mês, o indicador mensal continua identificado pelo mês completo; ele não é rateado artificialmente por dia.
 
 ## Médias nativas
 
@@ -48,7 +50,7 @@ Cada família pode conter:
 
 `dailyAverage` e `monthlyAverage` são valores calculados/reportados pelo Hyster Tracker. O Pulso não conhece o denominador interno usado pelo fornecedor e **não transforma essas médias em linhas fictícias por dia ou mês**.
 
-## 29 famílias de métricas do schema v4
+## 29 famílias de métricas do schema v5
 
 - `serviceHours` — medidor principal;
 - `driveHours` — motor/tração;
@@ -113,18 +115,22 @@ Nenhuma dessas métricas gera ranking disciplinar de pessoas.
 
 ## Uso pela IA
 
-O motor de anomalia diária não mistura `card-period` com `asset-day`. Métricas Workforce entram no Operational Context Engine apenas como contexto agregado do equipamento/período.
+O motor de anomalia diária continua no grão `asset-day`. O Operational Context Engine procura o **mês que contém a data do insight** e anexa a telemetria Workforce daquele equipamento como `asset-month`.
 
-A camada enviada para interpretação por IA remove identidade de cartão/operador e inclui caveats explícitos de granularidade. Isso permite usar velocidade, overspeed, hidráulica ou carga para enriquecer hipóteses sem alegar que a métrica ocorreu no mesmo dia do insight.
+Assim, um insight de 10/07 pode usar hidráulica, movimento, marcha, elevação/descida e velocidade de **julho**, mas nunca afirmar que o total mensal ocorreu especificamente em 10/07.
+
+A camada enviada para interpretação por IA remove identidade de cartão/operador e inclui caveats explícitos de granularidade.
 
 ## Importação
 
 ```bash
 python scripts/import_hyster.py /caminho/exports \
-  --workforce /caminho/workforceKPITier7.xlsx \
+  --workforce /caminho/workforceKPITier7-jun.xlsx \
+              /caminho/workforceKPITier7-jul.xlsx \
+              /caminho/workforceKPITier7-ago.xlsx \
   --output .data/Pulso-base-operacao.json
 ```
 
-O importador valida o layout esperado, as 29 famílias e seus blocos de três colunas (`Daily Averages`, `Monthly Averages`, `Total Usage`). Alteração inesperada de layout falha explicitamente em vez de deslocar colunas silenciosamente.
+O importador aceita os rótulos inglês/português usados pelo Hyster, valida os 29 blocos de três colunas (média diária, média mensal e uso total), impede meses sobrepostos e grava cada exportação no período real de origem. Alteração inesperada de layout falha explicitamente em vez de deslocar colunas silenciosamente.
 
 Dados reais e arquivos XLSX/JSON permanecem fora do repositório público.
