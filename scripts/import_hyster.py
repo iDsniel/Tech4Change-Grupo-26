@@ -385,6 +385,7 @@ def convert_workforce_months(paths, product_meta, analysis_start, analysis_end):
         "periodEnd": periods[-1]["periodEnd"],
         "granularity": "card-month",
         "unitSystem": "metric",
+        "cards": [],
         "periods": periods,
         "warnings": [
             "Os indicadores Workforce têm granularidade mensal real (cartão-mês e equipamento-mês).",
