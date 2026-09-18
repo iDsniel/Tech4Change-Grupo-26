@@ -145,7 +145,7 @@ export type WorkforceData = {
   unitSystem: "metric";
   sourceFile?: string;
   sha256?: string;
-  cards?: WorkforceCard[];
+  cards: WorkforceCard[];
   periods?: WorkforcePeriodData[];
   metricAvailability?: Partial<Record<WorkforceMetricKey, WorkforceMetricAvailability>>;
   warnings: string[];
@@ -468,7 +468,7 @@ export function validateHyster(value: unknown): HysterData {
       validateMetricAvailability(w.metricAvailability);
       validateWorkforceCards(w.cards, ids);
     } else if (w.granularity === "card-month") {
-      if (d.schemaVersion < 5 || !Array.isArray(w.periods) || !w.periods.length || w.periods.length > 36) throw new Error("Workforce KPI mensal inválido.");
+      if (d.schemaVersion < 5 || !Array.isArray(w.cards) || w.cards.length !== 0 || !Array.isArray(w.periods) || !w.periods.length || w.periods.length > 36) throw new Error("Workforce KPI mensal inválido.");
       const sorted = [...w.periods].sort((a, b) => a.periodStart.localeCompare(b.periodStart));
       for (let index = 0; index < sorted.length; index += 1) {
         const period = sorted[index];
@@ -520,7 +520,7 @@ export function workforceCardSlices(data: HysterData, start = data.periodStart, 
       .filter((period) => period.periodEnd >= start && period.periodStart <= end)
       .map((period) => ({ periodStart: period.periodStart, periodEnd: period.periodEnd, granularity: "card-month" as const, cards: period.cards }));
   }
-  return workforce.cards && workforce.periodEnd >= start && workforce.periodStart <= end
+  return workforce.periodEnd >= start && workforce.periodStart <= end
     ? [{ periodStart: workforce.periodStart, periodEnd: workforce.periodEnd, granularity: "card-period" as const, cards: workforce.cards }]
     : [];
 }
