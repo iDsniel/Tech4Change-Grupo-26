@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeHyster, totals, validateHyster, workforceStatistic, type Daily, type HysterData } from "../lib/hyster.ts";
+import { analyzeHyster, totals, validateHyster, workforceCardSlices, workforceStatistic, type Daily, type HysterData } from "../lib/hyster.ts";
 
 const row = (date: string, key = 10, idle = 1): Daily => ({ assetId: "EP01", date, keyHours: key, idleHours: idle, workHours: key - idle, presenceHours: key, waitHours: idle, sourceRow: 4 });
 function fixture(): HysterData {
@@ -9,6 +9,30 @@ function fixture(): HysterData {
 function withWorkforce(): HysterData {
   const d = fixture(); d.schemaVersion = 3;
   d.workforce = { periodStart: "2026-06-01", periodEnd: "2026-08-31", granularity: "card-period", unitSystem: "metric", sourceFile: "workforceKPITier7.xlsx", sha256: "a".repeat(64), warnings: [], cards: [{ cardCode: "00845", cardQuality: "complete", usageCount: 5, sourceRow: 3, metrics: { distanceKm: 9.5, keyHours: 3, idleHours: 0.7, motionHours: 1.9, liftHours: 0.4, lowerHours: 0.4, highSpeedHours: 0.3, reverseHours: 0.6, forwardHours: 1.4 }, assets: [{ assetId: "EP01", usageCount: 5, sourceRow: 4, metrics: { distanceKm: 9.5, keyHours: 3, idleHours: 0.7 } }] }] };
+  return d;
+}
+function withMonthlyWorkforce(): HysterData {
+  const legacy = withWorkforce();
+  const juneCard = structuredClone(legacy.workforce!.cards[0]);
+  juneCard.metrics = { ...juneCard.metrics, keyHours: 10, workHours: 7, hydraulicHours: 4, motionHours: 6 };
+  juneCard.assets[0].metrics = { ...juneCard.assets[0].metrics, keyHours: 10, workHours: 7, hydraulicHours: 4, motionHours: 6 };
+  const julyCard = structuredClone(juneCard);
+  julyCard.metrics = { ...julyCard.metrics, keyHours: 20, workHours: 15, hydraulicHours: 11, motionHours: 13 };
+  julyCard.assets[0].metrics = { ...julyCard.assets[0].metrics, keyHours: 20, workHours: 15, hydraulicHours: 11, motionHours: 13 };
+  const d = fixture();
+  d.schemaVersion = 5;
+  d.workforce = {
+    periodStart: "2026-06-01",
+    periodEnd: "2026-07-31",
+    granularity: "card-month",
+    unitSystem: "metric",
+    cards: [],
+    periods: [
+      { periodStart: "2026-06-01", periodEnd: "2026-06-30", granularity: "card-month", sourceFile: "workforce-jun.xlsx", sha256: "b".repeat(64), cards: [juneCard], warnings: [] },
+      { periodStart: "2026-07-01", periodEnd: "2026-07-31", granularity: "card-month", sourceFile: "workforce-jul.xlsx", sha256: "c".repeat(64), cards: [julyCard], warnings: [] }
+    ],
+    warnings: []
+  };
   return d;
 }
 function schema4(): HysterData {
@@ -77,6 +101,25 @@ test("workforce keeps card code as text and does not manufacture monthly history
   assert.equal(analyzeHyster(d).months[0].key, 10);
   assert.equal(analyzeHyster(d, "2026-07").totals.key, 0);
 });
+test("schema v5 preserves real card-month granularity and allows the same card across months", () => {
+  const d = withMonthlyWorkforce();
+  const validated = validateHyster(d);
+  assert.equal(validated.workforce?.granularity, "card-month");
+  assert.equal(validated.workforce?.cards.length, 0);
+  assert.equal(validated.workforce?.periods?.length, 2);
+  const july = workforceCardSlices(validated, "2026-07-10", "2026-07-20");
+  assert.equal(july.length, 1);
+  assert.equal(july[0].periodStart, "2026-07-01");
+  assert.equal(july[0].cards[0].cardCode, "00845");
+  assert.equal(july[0].cards[0].metrics.hydraulicHours, 11);
+});
+
+test("schema v5 rejects overlapping Workforce months", () => {
+  const d = withMonthlyWorkforce();
+  d.workforce!.periods![1].periodStart = "2026-06-30";
+  assert.throws(() => validateHyster(d), /sobrepostos/);
+});
+
 test("workforce rejects invalid metrics, duplicated asset slices and unsignaled duplicate codes", () => {
   const badMetric = withWorkforce(); badMetric.workforce!.cards[0].metrics.idleHours = -1;
   assert.throws(() => validateHyster(badMetric), /Workforce/);
