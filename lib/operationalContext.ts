@@ -1,4 +1,4 @@
-import type { HysterData, WorkforceMetrics } from "./hyster.ts";
+import { workforceCardSlices, type HysterData, type WorkforceMetrics } from "./hyster.ts";
 import type { DailyInput, WorkOrder } from "./operations.ts";
 import type { OperationalAIInsight } from "./operationalAI.ts";
 
@@ -21,7 +21,7 @@ export type OperationalContext = {
     sourceWaitPctOfIdle?: number | null;
   };
   aggregateTelemetry?: {
-    granularity: "asset-period";
+    granularity: "asset-month" | "asset-period";
     periodStart: string;
     periodEnd: string;
     usageCount: number;
@@ -114,28 +114,35 @@ function mergeMetrics(rows: WorkforceMetrics[]) {
   return merged;
 }
 
-function aggregateTelemetry(data: HysterData, assetId: string): OperationalContext["aggregateTelemetry"] | undefined {
+function aggregateTelemetry(data: HysterData, assetId: string, date: string): OperationalContext["aggregateTelemetry"] | undefined {
   if (!data.workforce) return undefined;
-  // Aggregate all complete asset slices. This deliberately removes card identity from the AI context.
-  const slices = data.workforce.cards
-    .filter((card) => card.cardQuality === "complete")
-    .flatMap((card) => card.assets.filter((asset) => asset.assetId === assetId));
-  if (!slices.length) return undefined;
+  const month = date.slice(0, 7);
+  const sourcePeriods = workforceCardSlices(data, `${month}-01`, `${month}-31`);
+  if (!sourcePeriods.length) return undefined;
 
-  const metrics = mergeMetrics(slices.map((slice) => slice.metrics));
+  // Aggregate complete slices from the month containing the insight. Card identity is deliberately removed.
+  const assetSlices = sourcePeriods.flatMap((period) =>
+    period.cards
+      .filter((card) => card.cardQuality === "complete")
+      .flatMap((card) => card.assets.filter((asset) => asset.assetId === assetId))
+  );
+  if (!assetSlices.length) return undefined;
+
+  const metrics = mergeMetrics(assetSlices.map((slice) => slice.metrics));
   const marchHours = metrics.forwardHours != null && metrics.reverseHours != null
     ? metrics.forwardHours + metrics.reverseHours
     : undefined;
   const loadHours = metrics.ladenHours != null && metrics.unladenHours != null
     ? metrics.ladenHours + metrics.unladenHours
     : undefined;
+  const monthly = sourcePeriods.every((period) => period.granularity === "card-month");
 
   return {
-    granularity: "asset-period",
-    periodStart: data.workforce.periodStart,
-    periodEnd: data.workforce.periodEnd,
-    usageCount: slices.reduce((sum, slice) => sum + slice.usageCount, 0),
-    coverageSlices: slices.length,
+    granularity: monthly ? "asset-month" : "asset-period",
+    periodStart: sourcePeriods[0].periodStart,
+    periodEnd: sourcePeriods.at(-1)!.periodEnd,
+    usageCount: assetSlices.reduce((sum, slice) => sum + slice.usageCount, 0),
+    coverageSlices: assetSlices.length,
     metrics,
     ratios: {
       hydraulicPct: ratio(metrics.hydraulicHours, metrics.keyHours),
@@ -155,7 +162,9 @@ function aggregateTelemetry(data: HysterData, assetId: string): OperationalConte
       ladenPct: ratio(metrics.ladenHours, loadHours),
       unladenPct: ratio(metrics.unladenHours, loadHours)
     },
-    caveat: "Indicadores de movimento, hidráulica, velocidade, overspeed, carga e marcha são agregados do período Workforce informado; não representam necessariamente o dia do insight e não devem ser rateados artificialmente."
+    caveat: monthly
+      ? `Hidráulica, movimento, marcha, velocidade e carga são totais reais do mês ${sourcePeriods[0].periodStart.slice(0, 7)}. Eles contextualizam o insight, mas não representam necessariamente o mesmo dia.`
+      : "Indicadores de movimento, hidráulica, velocidade, carga e marcha são agregados do período Workforce informado; não representam necessariamente o dia do insight."
   };
 }
 
@@ -200,7 +209,7 @@ export function buildOperationalContext({ data, insight, orders = [], inputs = [
   const row = data.daily.find((item) => item.assetId === insight.assetId && item.date === insight.date);
   if (!row) throw new Error("O insight não possui registro diário correspondente na base operacional.");
 
-  const aggregate = aggregateTelemetry(data, insight.assetId);
+  const aggregate = aggregateTelemetry(data, insight.assetId, insight.date);
   const events = eventContext(data, insight.assetId, insight.date);
   const management = managementContext(insight.assetId, insight.date, orders, inputs);
   const loadAvailable = !!aggregate && (aggregate.metrics.ladenHours ?? 0) + (aggregate.metrics.unladenHours ?? 0) > 0;
@@ -262,7 +271,7 @@ export function validateOperationalContext(value: unknown): OperationalContext {
   if (context.aggregateTelemetry !== undefined) {
     const aggregate = context.aggregateTelemetry as Record<string, unknown>;
     const ratios = aggregate.ratios as Record<string, unknown> | undefined;
-    if (aggregate.granularity !== "asset-period" || !validDate(aggregate.periodStart) || !validDate(aggregate.periodEnd) || String(aggregate.periodStart) > String(aggregate.periodEnd) || !Number.isInteger(aggregate.usageCount) || !Number.isInteger(aggregate.coverageSlices) || !aggregate.metrics || typeof aggregate.metrics !== "object" || !ratios || !Object.values(ratios).every(optionalFinite) || typeof aggregate.caveat !== "string") throw new Error("Contexto agregado inválido.");
+    if (!["asset-month", "asset-period"].includes(String(aggregate.granularity)) || !validDate(aggregate.periodStart) || !validDate(aggregate.periodEnd) || String(aggregate.periodStart) > String(aggregate.periodEnd) || !Number.isInteger(aggregate.usageCount) || !Number.isInteger(aggregate.coverageSlices) || !aggregate.metrics || typeof aggregate.metrics !== "object" || !ratios || !Object.values(ratios).every(optionalFinite) || typeof aggregate.caveat !== "string") throw new Error("Contexto agregado inválido.");
   }
 
   const events = context.events as Record<string, unknown> | undefined;
