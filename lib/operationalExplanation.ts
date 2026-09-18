@@ -76,7 +76,11 @@ function contextSentence(packet: OperationalAIInsight | OperationalExplanationPa
   const input = context.management.sameDayInput;
   if (input?.production != null) pieces.push(`produção apontada no dia ${Math.round(input.production)} ${input.productionUnit}`);
   if (!pieces.length) return "";
-  const aggregateLabel = aggregate ? ` No agregado disponível de ${aggregate.periodStart} a ${aggregate.periodEnd}, ${pieces.filter((item) => !item.startsWith("produção")).join(", ")}.` : "";
+  const aggregateLabel = aggregate
+    ? aggregate.granularity === "asset-month"
+      ? ` No mês ${aggregate.periodStart.slice(0, 7)}, ${pieces.filter((item) => !item.startsWith("produção")).join(", ")}.`
+      : ` No agregado disponível de ${aggregate.periodStart} a ${aggregate.periodEnd}, ${pieces.filter((item) => !item.startsWith("produção")).join(", ")}.`
+    : "";
   const dailyLabel = input?.production != null ? ` No mesmo dia, houve apontamento de produção de ${Math.round(input.production)} ${input.productionUnit}.` : "";
   return `${aggregateLabel}${dailyLabel}`;
 }
@@ -94,7 +98,9 @@ export function deterministicOperationalExplanation(insight: OperationalAIInsigh
   if (context && !context.availability.demandOrProduction && insight.category === "efficiency") whyItMatters = "Sem dado de demanda ou produção do dia, o Pulso não consegue separar automaticamente baixa atividade de baixa demanda; a leitura serve para direcionar a verificação humana.";
 
   const scopeWarning = context?.aggregateTelemetry
-    ? " Indicadores de hidráulica, movimento e marcha são contexto agregado do período, não evidência diária."
+    ? context.aggregateTelemetry.granularity === "asset-month"
+      ? " Indicadores de hidráulica, movimento e marcha são contexto mensal, não evidência diária."
+      : " Indicadores de hidráulica, movimento e marcha são contexto agregado do período, não evidência diária."
     : "";
 
   return {
