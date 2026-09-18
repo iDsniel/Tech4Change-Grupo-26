@@ -9,7 +9,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Database,
-  Droplets,
+  ArrowUpDown,
   Gauge,
   Move,
   PauseCircle,
@@ -21,6 +21,7 @@ import {
 import {
   analyzeHyster,
   validateHyster,
+  workforceCardSlices,
   workforceMetricKeys,
   type HysterData,
   type WorkforceMetricKey,
@@ -75,9 +76,11 @@ function mergeMetrics(rows: WorkforceMetrics[]) {
   return merged;
 }
 
-function workforceContext(data: HysterData, assetId = "all", cardCode = "all") {
+function workforceContext(data: HysterData, assetId = "all", cardCode = "all", rangeStart = data.periodStart, rangeEnd = data.periodEnd) {
   if (!data.workforce) return undefined;
-  const cards = data.workforce.cards.filter((card) =>
+  const periods = workforceCardSlices(data, rangeStart, rangeEnd);
+  if (!periods.length) return undefined;
+  const cards = periods.flatMap((period) => period.cards).filter((card) =>
     card.cardQuality === "complete" && (cardCode === "all" || card.cardCode === cardCode)
   );
   const slices = cards.flatMap((card) => card.assets.filter((asset) => assetId === "all" || asset.assetId === assetId));
@@ -91,8 +94,9 @@ function workforceContext(data: HysterData, assetId = "all", cardCode = "all") {
   return {
     metrics,
     usageCount: slices.reduce((sum, slice) => sum + slice.usageCount, 0),
-    periodStart: data.workforce.periodStart,
-    periodEnd: data.workforce.periodEnd,
+    periodStart: periods[0].periodStart,
+    periodEnd: periods.at(-1)!.periodEnd,
+    granularity: periods.every((period) => period.granularity === "card-month") ? "card-month" as const : "card-period" as const,
     keyHours: metrics.keyHours,
     workPct: ratio(metrics.workHours, metrics.keyHours),
     idlePct: ratio(metrics.idleHours, metrics.keyHours),
@@ -155,7 +159,7 @@ export default function HysterDashboard() {
   const data = useMemo(() => combineDatasets(workspace.datasets), [workspace.datasets]);
   const fullReport = useMemo(() => data ? analyzeHyster(data) : null, [data]);
   const ai = useMemo(() => data ? analyzeOperationalAI(data) : null, [data]);
-  const workforceProfiles = useMemo(() => data ? analyzeWorkforceProfiles(data, card === "all" ? undefined : card) : undefined, [data, card]);
+  const workforceProfiles = useMemo(() => data ? analyzeWorkforceProfiles(data, card === "all" ? undefined : card, dateFrom || data.periodStart, dateTo || data.periodEnd) : undefined, [data, card, dateFrom, dateTo]);
 
   useEffect(() => {
     readWorkspace()
@@ -261,8 +265,9 @@ export default function HysterDashboard() {
 
   const activeFrom = dateFrom || data.periodStart;
   const activeTo = dateTo || data.periodEnd;
+  const workforceCards = workforceCardSlices(data).flatMap((period) => period.cards);
   const cards = [...new Set([
-    ...(data.workforce?.cards.flatMap((row) => row.cardCode ? [row.cardCode] : []) ?? []),
+    ...workforceCards.flatMap((row) => row.cardCode ? [row.cardCode] : []),
     ...data.events.flatMap((event) => event.cardCode ? [event.cardCode] : [])
   ])].sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
 
@@ -273,17 +278,12 @@ export default function HysterDashboard() {
     (card === "all" || event.cardCode === card)
   );
   const totals = dailyTotals(filteredDaily);
-  const workforceScope = workforceContext(data, asset, card);
+  const workforceScope = workforceContext(data, asset, card, activeFrom, activeTo);
   const cardScoped = card !== "all";
   const displayedWorkPct = cardScoped ? workforceScope?.workPct : totals.workPct;
   const displayedIdlePct = cardScoped ? workforceScope?.idlePct : totals.idlePct;
   const impacts = filteredEvents.filter((event) => event.type === "Impacto").length;
   const faults = filteredEvents.filter((event) => event.type === "Falha do sistema").length;
-  const openOrders = workspace.orders.filter((order) =>
-    (order.status === "open" || order.status === "in_progress") &&
-    (asset === "all" || order.assetId === asset)
-  ).length;
-
   const filteredAI = ai.insights.filter((insight) =>
     between(insight.date, activeFrom, activeTo) &&
     (asset === "all" || insight.assetId === asset) &&
@@ -296,7 +296,7 @@ export default function HysterDashboard() {
     .filter((item) => asset === "all" || item.assetId === asset)
     .filter((item) => {
       if (card === "all") return true;
-      return !!workforceContext(data, item.assetId, card) || data.events.some((event) => event.assetId === item.assetId && event.cardCode === card);
+      return !!workforceContext(data, item.assetId, card, activeFrom, activeTo) || data.events.some((event) => event.assetId === item.assetId && event.cardCode === card);
     })
     .map((item) => {
       const rows = data.daily.filter((row) => row.assetId === item.assetId && between(row.date, activeFrom, activeTo));
@@ -306,7 +306,7 @@ export default function HysterDashboard() {
         between(event.date, activeFrom, activeTo) &&
         (card === "all" || event.cardCode === card)
       );
-      const wf = workforceContext(data, item.assetId, card);
+      const wf = workforceContext(data, item.assetId, card, activeFrom, activeTo);
       const profile = profileMap.get(item.assetId);
       return {
         assetId: item.assetId,
@@ -346,8 +346,8 @@ export default function HysterDashboard() {
       if (!row) return "Não há dados suficientes neste recorte para interpretar atividade operacional.";
       const parts = [
         row.workPct != null ? `trabalho em ${pct(row.workPct)} da chave` : "",
-        row.hydraulicPct != null ? `hidráulica em ${pct(row.hydraulicPct)} da chave no agregado disponível` : "",
-        row.motionPct != null ? `movimento em ${pct(row.motionPct)} da chave no agregado disponível` : ""
+        row.hydraulicPct != null ? `função hidráulica em ${pct(row.hydraulicPct)} da chave no contexto mensal disponível` : "",
+        row.motionPct != null ? `movimento em ${pct(row.motionPct)} da chave no contexto mensal disponível` : ""
       ].filter(Boolean);
       return `${row.assetId}: ${parts.join(", ")}. Sem demanda/produção equivalente, o Pulso trata isso como atividade registrada e não conclui perda de produtividade.`;
     }
@@ -365,15 +365,15 @@ export default function HysterDashboard() {
       : "Nenhum sinal foi priorizado pelo motor neste filtro. Continue usando a rotina operacional e as evidências disponíveis.";
   }
 
-  const workforcePeriodDifferent = !!data.workforce && (activeFrom !== data.workforce.periodStart || activeTo !== data.workforce.periodEnd);
+  const workforcePeriodDifferent = !!workforceScope && (activeFrom !== workforceScope.periodStart || activeTo !== workforceScope.periodEnd);
 
   const kpis = [
     { label: "Trabalho / chave", value: pct(displayedWorkPct), meter: displayedWorkPct, detail: cardScoped ? "agregado do cartão" : `${fmt(totals.work)} h no período`, icon: <Gauge size={18} /> },
-    { label: "Hidráulica / chave", value: pct(workforceScope?.hydraulicPct), meter: workforceScope?.hydraulicPct, detail: "atividade hidráulica registrada", icon: <Droplets size={18} /> },
+    { label: "Hidráulica / chave", value: pct(workforceScope?.hydraulicPct), meter: workforceScope?.hydraulicPct, detail: "elevação, descida e inclinação hidráulica", icon: <ArrowUpDown size={18} /> },
     { label: "Movimento / chave", value: pct(workforceScope?.motionPct), meter: workforceScope?.motionPct, detail: "tempo em movimento", icon: <Move size={18} /> },
     { label: "Marcha / chave", value: pct(workforceScope?.marchPct), meter: workforceScope?.marchPct, detail: workforceScope?.forwardShare != null && workforceScope.reverseShare != null ? `${fmt(workforceScope.forwardShare)}% frente · ${fmt(workforceScope.reverseShare)}% ré` : "frente/ré indisponível", icon: <ArrowLeftRight size={18} /> },
     { label: "Ociosidade / chave", value: pct(displayedIdlePct), meter: displayedIdlePct, detail: cardScoped ? "agregado do cartão" : `${fmt(totals.idle)} h no período`, icon: <PauseCircle size={18} /> },
-    { label: "Impactos", value: fmt(impacts), detail: `${faults} falha(s) · ${openOrders} ação(ões) aberta(s)`, icon: <ShieldAlert size={18} />, attention: impacts > 0 }
+    { label: "Impactos", value: fmt(impacts), detail: impacts === 1 ? "evento de impacto registrado" : "eventos de impacto registrados", icon: <ShieldAlert size={18} />, attention: impacts > 0 }
   ];
 
   return <main className={`pageShell hyster appShell ${sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
@@ -417,7 +417,7 @@ export default function HysterDashboard() {
 
       {workforcePeriodDifferent && (view === "overview" || view === "investigate") && <div className="scopeBanner">
         <AlertTriangle size={15} />
-        <span>Hidráulica, movimento, marcha e demais indicadores por cartão/equipamento são agregados de <strong>{data.workforce?.periodStart} → {data.workforce?.periodEnd}</strong>. O Pulso não distribui esses totais artificialmente pelo intervalo escolhido.</span>
+        <span>Hidráulica, movimento e marcha têm granularidade mensal. Para este filtro, o contexto disponível cobre <strong>{workforceScope?.periodStart} → {workforceScope?.periodEnd}</strong>. Se o intervalo começa ou termina no meio do mês, o Pulso usa o total mensal real e não o reparte artificialmente por dia.</span>
       </div>}
 
       {view === "overview" && <section className="overviewPage">
@@ -425,7 +425,7 @@ export default function HysterDashboard() {
           {kpis.map((item) => <article key={item.label} className={item.attention ? "attention" : ""}>
             <div className="kpiTop"><span className="kpiIcon">{item.icon}</span><span>{item.label}</span></div>
             <strong>{item.value}</strong>
-            {item.meter != null && <div className="kpiMeter" aria-hidden="true"><span style={{ width: `${clampPct(item.meter)}%` }} /></div>}
+            <div className={`kpiMeter ${item.meter == null ? "empty" : ""}`} aria-hidden="true">{item.meter != null && <span style={{ width: `${clampPct(item.meter)}%` }} />}</div>
             <small>{item.detail}</small>
           </article>)}
         </section>
@@ -440,7 +440,7 @@ export default function HysterDashboard() {
           left={<section className="fleetWorkspace">
             <div className="fleetGridHeader">
               <div><strong>Equipamentos</strong><span>{fleetRows.length} no contexto selecionado</span></div>
-              {data.workforce && <span className="scopeChip">perfil agregado · {data.workforce.periodStart} → {data.workforce.periodEnd}</span>}
+              {workforceScope && <span className="scopeChip">{workforceScope.granularity === "card-month" ? "perfil mensal" : "perfil agregado"} · {workforceScope.periodStart} → {workforceScope.periodEnd}</span>}
             </div>
             <div className="fleetDataGrid">
               <table>
