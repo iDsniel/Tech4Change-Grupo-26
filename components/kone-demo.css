@@ -159,3 +159,53 @@
   .demoAssumptionBar small { margin-left: 0; }
   .demoEvidenceGrid, .demoActionCards { grid-template-columns: 1fr; }
 }
+
+
+.cycleBreakdown,
+.impactBreakdown {
+  margin-top: 10px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--pulso-border);
+  border-radius: 10px;
+}
+.cycleBreakdownGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.cycleBreakdownGrid > div {
+  min-width: 0;
+  padding: 10px;
+  display: grid;
+  gap: 3px;
+  background: #f8fafc;
+  border: 1px solid var(--pulso-border);
+  border-radius: 8px;
+}
+.cycleBreakdownGrid span {
+  color: #64748b;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.cycleBreakdownGrid strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+}
+.impactBreakdown {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+.impactBreakdown > small {
+  display: block;
+  margin-top: 9px;
+  color: #64748b;
+  font-size: 9px;
+}
+
+@media (max-width: 760px) {
+  .cycleBreakdownGrid { grid-template-columns: 1fr 1fr; }
+}

@@ -16,7 +16,10 @@ import {
   Sparkles,
   Truck,
   Weight,
-  Wrench
+  Wrench,
+  Repeat2,
+  TimerReset,
+  Database
 } from "lucide-react";
 import type { KoneDemoInsight, KoneDemoRecord, DemoShift } from "@/lib/koneDemo";
 import PeriodPicker from "./PeriodPicker";
@@ -38,7 +41,15 @@ type Payload = {
     tonnesPerLoadedMovement: number;
     businessRule: string;
     shifts: Array<{ code: DemoShift; start: string; end: string }>;
+    cycleModel: { phases: string[]; disclaimer: string };
     granularity: { pulsoNormalized: string; providerNative: string };
+    learning: {
+      periodStart: string;
+      trainingEnd: string;
+      evaluationStart: string;
+      periodEnd: string;
+      strategy: string;
+    };
   };
   source: {
     provider: string;
@@ -46,7 +57,22 @@ type Payload = {
     dataNature: string;
     disclaimer: string;
     publicCapabilities: string[];
+    processLayerCapabilities: string[];
     unsupportedInPublicReferenceUsed: string[];
+  };
+  learning: {
+    trainingStart: string;
+    trainingEnd: string;
+    evaluationStart: string;
+    evaluationEnd: string;
+    trainingRecords: number;
+    evaluationRecords: number;
+    totalRecords: number;
+    baselineKey: string;
+    minimumBaselineSamples: number;
+    statistics: string;
+    multivariateSecondOpinion: string;
+    holdoutPolicy: string;
   };
   periodStart: string;
   periodEnd: string;
@@ -69,13 +95,19 @@ type Summary = {
   totalLoadLiftedT: number;
   balesMoved: number;
   loadedMovements: number;
+  productiveCycles: number;
+  cyclesPerRunningHour: number | null;
+  averageCycleSec: number | null;
   tonnesPerDrivingHour: number | null;
+  tonnesPerRunningHour: number | null;
+  demandFulfillmentPct: number | null;
   fuelLiters: number;
   fuelPerTonne: number | null;
   distanceKm: number;
   avgSpeedKmh: number;
   highSpeedSharePct: number;
   emptyTravelPct: number;
+  downtimeHours: number;
   shocks: number;
   overloads: number;
   minMaintenanceHoursRemaining: number | null;
@@ -95,8 +127,12 @@ function aggregate(records: KoneDemoRecord[]): Summary {
   const drivingHours = records.reduce((sum, row) => sum + row.drivingHours, 0);
   const idleHours = records.reduce((sum, row) => sum + row.idleHours, 0);
   const totalLoadLiftedT = records.reduce((sum, row) => sum + row.totalLoadLiftedT, 0);
+  const productiveCycles = records.reduce((sum, row) => sum + row.productiveCycles, 0);
+  const balesMoved = records.reduce((sum, row) => sum + row.balesMoved, 0);
+  const plannedDemandT = records.reduce((sum, row) => sum + row.plannedDemandT, 0);
   const fuelLiters = records.reduce((sum, row) => sum + row.fuelLiters, 0);
   const distanceKm = records.reduce((sum, row) => sum + row.distanceKm, 0);
+  const downtimeHours = records.reduce((sum, row) => sum + row.downtimeHours, 0);
   const shocks = records.reduce((sum, row) => sum + row.shocks, 0);
   const overloads = records.reduce((sum, row) => sum + row.overloads, 0);
   const avgSpeedKmh = drivingHours > 0
@@ -109,6 +145,9 @@ function aggregate(records: KoneDemoRecord[]): Summary {
     ? records.reduce((sum, row) => sum + row.emptyTravelPct * row.drivingHours, 0) / drivingHours
     : 0;
   const minMaintenanceHoursRemaining = records.length ? Math.min(...records.map((row) => row.maintenanceHoursRemaining)) : null;
+  const averageCycleSec = productiveCycles > 0
+    ? records.reduce((sum, row) => sum + row.cycle.averageCycleSec * row.productiveCycles, 0) / productiveCycles
+    : 0;
 
   return {
     runningHours,
@@ -116,15 +155,21 @@ function aggregate(records: KoneDemoRecord[]): Summary {
     idleHours,
     idlePct: runningHours > 0 ? idleHours / runningHours * 100 : null,
     totalLoadLiftedT,
-    balesMoved: totalLoadLiftedT / 2,
-    loadedMovements: totalLoadLiftedT / 4,
+    balesMoved,
+    loadedMovements: productiveCycles,
+    productiveCycles,
+    cyclesPerRunningHour: runningHours > 0 ? productiveCycles / runningHours : null,
+    averageCycleSec: productiveCycles > 0 ? averageCycleSec : null,
     tonnesPerDrivingHour: drivingHours > 0 ? totalLoadLiftedT / drivingHours : null,
+    tonnesPerRunningHour: runningHours > 0 ? totalLoadLiftedT / runningHours : null,
+    demandFulfillmentPct: plannedDemandT > 0 ? totalLoadLiftedT / plannedDemandT * 100 : null,
     fuelLiters,
     fuelPerTonne: totalLoadLiftedT > 0 ? fuelLiters / totalLoadLiftedT : null,
     distanceKm,
     avgSpeedKmh,
     highSpeedSharePct,
     emptyTravelPct,
+    downtimeHours,
     shocks,
     overloads,
     minMaintenanceHoursRemaining
@@ -266,7 +311,7 @@ export default function KoneDemoDashboard() {
     if (!currentAsset) return "Selecione um equipamento.";
     const s = currentAsset.summary;
     if (assistMode === "productivity") {
-      return `${currentAsset.assetId} movimentou ${fmt(s.totalLoadLiftedT)} t (${fmt(s.balesMoved)} fardos) no contexto filtrado, com ${fmt(s.tonnesPerDrivingHour, 1)} t por hora em deslocamento e ${fmt(s.fuelPerTonne, 2)} L/t. A demo usa 2 fardos de 2 t por movimento produtivo; o Pulso compara o resultado com o histórico do mesmo ativo/turno antes de sugerir investigação.`;
+      return `${currentAsset.assetId} concluiu ${fmt(s.productiveCycles)} ciclos (${fmt(s.balesMoved)} fardos / ${fmt(s.totalLoadLiftedT)} t), com ${fmt(s.tonnesPerRunningHour, 1)} t/h de máquina e ciclo médio de ${fmt(s.averageCycleSec)} s. O Pulso compara cada etapa do ciclo com cinco meses de baseline do mesmo ativo/turno antes de sugerir investigação.`;
     }
     if (assistMode === "safety") {
       return `${currentAsset.assetId} registrou ${s.shocks} impacto(s), velocidade média de ${fmt(s.avgSpeedKmh, 1)} km/h e ${fmt(s.highSpeedSharePct)}% do deslocamento na faixa alta normalizada da demo. Frente/ré não aparece porque essa variável não está listada na referência pública Konecranes usada para este cenário.`;
@@ -280,10 +325,10 @@ export default function KoneDemoDashboard() {
 
   const kpis = [
     { label: "Carga movimentada", value: `${fmt(summary.totalLoadLiftedT)} t`, detail: `${fmt(summary.balesMoved)} fardos · ${fmt(summary.loadedMovements)} movimentos`, icon: <Weight size={18} /> },
-    { label: "Produtividade", value: `${fmt(summary.tonnesPerDrivingHour, 1)} t/h`, detail: "toneladas por hora em deslocamento", icon: <PackageCheck size={18} /> },
+    { label: "Produtividade", value: `${fmt(summary.tonnesPerRunningHour, 1)} t/h`, detail: `${fmt(summary.cyclesPerRunningHour, 1)} ciclos/h de máquina`, icon: <PackageCheck size={18} /> },
     { label: "Combustível", value: `${fmt(summary.fuelPerTonne, 2)} L/t`, detail: `${fmt(summary.fuelLiters)} L no período`, icon: <Fuel size={18} /> },
     { label: "Tempo ocioso", value: pct(summary.idlePct), detail: `${fmt(summary.idleHours, 1)} h em idle`, icon: <Clock3 size={18} /> },
-    { label: "Deslocamento vazio", value: pct(summary.emptyTravelPct), detail: "sobre tempo em deslocamento", icon: <Truck size={18} /> },
+    { label: "Ciclo médio", value: `${fmt(summary.averageCycleSec)} s`, detail: "aproximação + coleta + transferência + depósito", icon: <Repeat2 size={18} /> },
     { label: "Impactos", value: fmt(summary.shocks), detail: `${summary.overloads} sobrecarga(s)`, icon: <ShieldAlert size={18} />, attention: summary.shocks > 0 }
   ];
 
@@ -326,9 +371,10 @@ export default function KoneDemoDashboard() {
 
       {view === "overview" && <section className="overviewPage">
         <section className="demoAssumptionBar">
-          <div><Box size={18} /><span><strong>2 t por fardo</strong> · 2 fardos por movimento · <strong>4 t/movimento</strong></span></div>
+          <div><Box size={18} /><span><strong>2 t por fardo</strong> · 2 fardos por ciclo · <strong>4 t/ciclo</strong></span></div>
           <div><Truck size={18} /><span>empilhadeira 16 t · garfo · operação principal de celulose</span></div>
-          <small>Premissas sintéticas da demo, não dados do fabricante.</small>
+          <div><Database size={18} /><span><strong>6 meses</strong> · {fmt(data.learning.trainingRecords)} treino · {fmt(data.learning.evaluationRecords)} holdout</span></div>
+          <small>Telemetria e processo sintéticos, com origem separada por camada.</small>
         </section>
 
         <section className="kpiRibbon">
@@ -351,14 +397,14 @@ export default function KoneDemoDashboard() {
             <div className="fleetGridHeader"><div><strong>Frota de celulose</strong><span>{fleetRows.length} equipamentos no filtro</span></div><span className="scopeChip">{data.source.product}</span></div>
             <div className="fleetDataGrid demoFleetGrid">
               <table>
-                <thead><tr><th>Equipamento</th><th>Carga</th><th>t/h</th><th>L/t</th><th>Vazio</th><th>Velocidade</th><th>Impactos</th><th>Manut.</th></tr></thead>
+                <thead><tr><th>Equipamento</th><th>Carga</th><th>t/h</th><th>Ciclos/h</th><th>Ciclo</th><th>L/t</th><th>Impactos</th><th>Manut.</th></tr></thead>
                 <tbody>{fleetRows.map((row) => <tr key={row.assetId} className={currentAsset?.assetId === row.assetId ? "selectedRow" : ""} onClick={() => setSelectedAsset(row.assetId)}>
                   <th><button className="assetSelect" type="button" onClick={(event) => { event.stopPropagation(); setSelectedAsset(row.assetId); }}>{row.assetId}</button><small>{row.capacity}</small></th>
                   <td>{fmt(row.summary.totalLoadLiftedT)} t</td>
-                  <td>{fmt(row.summary.tonnesPerDrivingHour, 1)}</td>
+                  <td>{fmt(row.summary.tonnesPerRunningHour, 1)}</td>
+                  <td>{fmt(row.summary.cyclesPerRunningHour, 1)}</td>
+                  <td>{fmt(row.summary.averageCycleSec)} s</td>
                   <td>{fmt(row.summary.fuelPerTonne, 2)}</td>
-                  <td>{pct(row.summary.emptyTravelPct)}</td>
-                  <td>{fmt(row.summary.avgSpeedKmh, 1)} km/h</td>
                   <td><span className={row.summary.shocks ? "impactCount active" : "impactCount"}>{row.summary.shocks}</span></td>
                   <td>{fmt(row.summary.minMaintenanceHoursRemaining)} h</td>
                 </tr>)}</tbody>
@@ -388,7 +434,7 @@ export default function KoneDemoDashboard() {
             <article className="copilotReading"><span>Leitura operacional</span><p>{assistMode === "summary" && generated ? generated : assistantCopy()}</p></article>
             {currentAsset && <div className="copilotFacts">
               <div><span>Carga</span><strong>{fmt(currentAsset.summary.totalLoadLiftedT)} t</strong></div>
-              <div><span>Produtividade</span><strong>{fmt(currentAsset.summary.tonnesPerDrivingHour, 1)} t/h</strong></div>
+              <div><span>Produtividade</span><strong>{fmt(currentAsset.summary.tonnesPerRunningHour, 1)} t/h</strong></div>
               <div><span>Combustível</span><strong>{fmt(currentAsset.summary.fuelPerTonne, 2)} L/t</strong></div>
               <div><span>Velocidade</span><strong>{fmt(currentAsset.summary.avgSpeedKmh, 1)} km/h</strong></div>
             </div>}
@@ -425,9 +471,28 @@ export default function KoneDemoDashboard() {
                 <article className="contextEvidence"><div className="cardTitle"><Factory size={18} /> Contexto do processo</div><p>{currentInsight.context}</p><p><small>{data.scenario.businessRule}</small></p></article>
                 <article className="contextEvidence"><div className="cardTitle"><HardHat size={18} /> O que verificar</div><ul>{currentInsight.verify.map((item) => <li key={item}>{item}</li>)}</ul></article>
               </div>
+              {currentInsight.cycleContext && <article className="cycleBreakdown">
+                <div className="cardTitle"><TimerReset size={18} /> Decomposição do ciclo</div>
+                <div className="cycleBreakdownGrid">
+                  <div><span>Ciclo atual</span><strong>{fmt(currentInsight.cycleContext.averageCycleSec)} s</strong></div>
+                  <div><span>Baseline</span><strong>{fmt(currentInsight.cycleContext.baselineAverageCycleSec)} s</strong></div>
+                  <div><span>Maior deterioração</span><strong>{currentInsight.cycleContext.slowestPhaseLabel}</strong></div>
+                  <div><span>Diferença</span><strong>+{fmt(Math.max(0, currentInsight.cycleContext.slowestPhaseDeltaSec))} s</strong></div>
+                </div>
+              </article>}
+              {currentInsight.businessImpact && <article className="impactBreakdown">
+                <div className="cardTitle"><Wrench size={18} /> Impacto da indisponibilidade</div>
+                <div className="cycleBreakdownGrid">
+                  <div><span>Parada</span><strong>{fmt(currentInsight.businessImpact.downtimeHours, 1)} h</strong></div>
+                  <div><span>Capacidade indisponível</span><strong>{fmt(currentInsight.businessImpact.capacityUnavailableT)} t</strong></div>
+                  <div><span>Absorvido pela frota</span><strong>{fmt(currentInsight.businessImpact.fleetAbsorbedT)} t</strong></div>
+                  <div><span>Impacto operacional</span><strong>{fmt(currentInsight.businessImpact.effectiveOperationalImpactT)} t</strong></div>
+                </div>
+                <small>Sem R$/t válido, o Pulso não converte este impacto em custo financeiro.</small>
+              </article>}
               <details className="technicalDetails"><summary><Gauge size={17} /> Detalhes técnicos da detecção</summary>
-                <div className="hysterTable"><table><thead><tr><th>Métrica</th><th>Atual</th><th>Histórico</th><th>Desvio</th></tr></thead><tbody>{currentInsight.technical.evidence.map((item) => <tr key={item.label}><th>{item.label}</th><td>{fmt(item.current, 2)} {item.unit}</td><td>{fmt(item.mean, 2)} {item.unit}</td><td>{item.zScore > 0 ? "+" : ""}{fmt(item.zScore, 2)}σ</td></tr>)}</tbody></table></div>
-                <p><small>{currentInsight.technical.baselineSamples} registros comparáveis em até {currentInsight.technical.lookbackDays} dias · segunda opinião Isolation Forest: {currentInsight.technical.isolationForestPercentile == null ? "não aplicável" : `${fmt(currentInsight.technical.isolationForestPercentile)}º percentil`}.</small></p>
+                <div className="hysterTable"><table><thead><tr><th>Métrica</th><th>Atual</th><th>Mediana treino</th><th>Desvio robusto</th></tr></thead><tbody>{currentInsight.technical.evidence.map((item) => <tr key={item.label}><th>{item.label}</th><td>{fmt(item.current, 2)} {item.unit}</td><td>{fmt(item.median, 2)} {item.unit}</td><td>{item.robustZ > 0 ? "+" : ""}{fmt(item.robustZ, 2)} MAD-z</td></tr>)}</tbody></table></div>
+                <p><small>{currentInsight.technical.baselineSamples} registros de treino do mesmo ativo/turno · {currentInsight.technical.trainingWindow} · segunda opinião Isolation Forest: {currentInsight.technical.isolationForestPercentile == null ? "não aplicável" : `${fmt(currentInsight.technical.isolationForestPercentile)}º percentil`}.</small></p>
               </details>
             </>}
           </article>
@@ -450,7 +515,7 @@ export default function KoneDemoDashboard() {
           <article className="surfaceCard"><h3>Konecranes · referência pública usada</h3><ul className="demoCapabilityList">{data.source.publicCapabilities.map((item) => <li key={item}><CheckCircle2 size={15} /> {item}</li>)}</ul></article>
           <article className="surfaceCard"><h3>Não inventado nesta demo</h3><ul className="demoCapabilityList muted">{data.source.unsupportedInPublicReferenceUsed.map((item) => <li key={item}><AlertTriangle size={15} /> {item}</li>)}</ul><p><small>Se outro adaptador fornecer essas dimensões — como no Hyster — a UI pode mostrá-las sem mudar a arquitetura do produto.</small></p></article>
         </div>
-        <article className="surfaceCard demoProvenance"><h3>Granularidade</h3><p><strong>Pulso demo:</strong> {data.scenario.granularity.pulsoNormalized}.</p><p><strong>Konecranes:</strong> {data.scenario.granularity.providerNative}</p><p>{data.source.disclaimer}</p></article>
+        <article className="surfaceCard demoProvenance"><h3>Granularidade e aprendizado</h3><p><strong>Pulso demo:</strong> {data.scenario.granularity.pulsoNormalized}.</p><p><strong>Konecranes:</strong> {data.scenario.granularity.providerNative}</p><p><strong>Treino:</strong> {data.learning.trainingStart} → {data.learning.trainingEnd} · {fmt(data.learning.trainingRecords)} registros · {data.learning.statistics}.</p><p><strong>Holdout:</strong> {data.learning.evaluationStart} → {data.learning.evaluationEnd} · {fmt(data.learning.evaluationRecords)} registros. {data.learning.holdoutPolicy}</p><p>{data.source.disclaimer}</p></article>
       </section>}
     </div>
   </main>;

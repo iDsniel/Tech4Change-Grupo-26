@@ -63,28 +63,28 @@ export function DemoMode() {
     {
       kicker: "ABERTURA",
       title: "Mesmo Pulso, outra fonte de telemetria",
-      narration: "A demo simula uma operação de celulose com seis empilhadeiras Konecranes de 16 t. Cada fardo tem 2 t e cada movimento produtivo leva dois fardos, portanto 4 t. Os números são sintéticos; a escolha das variáveis segue conceitos públicos do TRUCONNECT.",
+      narration: "A demo agora cobre seis meses. Março a julho formam o baseline do mesmo ativo e turno; agosto fica como holdout. Cada ciclo produtivo leva dois fardos de 2 t, portanto 4 t, e os dados sintéticos separam telemetria OEM-like da camada de processo do Pulso.",
       prepare: () => clickButton("Visão geral"),
       target: () => document.querySelector<HTMLElement>(".demoAssumptionBar")
     },
     {
       kicker: "1 · NEGÓCIO",
-      title: "Carga vira contexto de produtividade",
-      narration: "Selecione a KLT-03. O Pulso traduz carga total levantada para toneladas, fardos e movimentos produtivos e combina isso com horas em deslocamento, ociosidade, deslocamento vazio e combustível.",
+      title: "O Pulso aprende o ciclo, não só a tonelagem",
+      narration: "Selecione a KLT-03. O Pulso transforma toneladas em ciclos e fardos e decompõe o processo em aproximação vazia, coleta, transferência carregada e depósito. Isso permite localizar qual etapa mudou, não apenas dizer que produziu menos.",
       prepare: () => { selectAsset("KLT-03"); selectAssist("Produtividade"); },
       target: () => document.querySelector<HTMLElement>(".copilotReading")
     },
     {
       kicker: "2 · DETECTAR",
       title: "Atividade abaixo do histórico comparável",
-      narration: "O motor compara o mesmo ativo e turno com seu histórico recente. A queda de toneladas por hora junto de mais ociosidade ou consumo por tonelada vira um ponto de investigação, não um diagnóstico automático.",
+      narration: "O motor compara agosto com cinco meses de baseline robusto do mesmo ativo e turno. Na KLT-03, a queda de t/h vem junto de um ciclo mais longo e o motor identifica a aproximação vazia como a maior deterioração.",
       prepare: () => openInvestigation("KLT-03"),
       target: () => document.querySelector<HTMLElement>(".demoInsightDetail")
     },
     {
       kicker: "3 · AUDITAR",
       title: "Evidência técnica continua disponível",
-      narration: "A camada principal usa linguagem operacional. Em detalhes técnicos, z-score e Isolation Forest permanecem auditáveis para explicar por que aquele contexto foi priorizado.",
+      narration: "A camada principal usa linguagem operacional. Em detalhes técnicos, mediana + MAD e Isolation Forest permanecem auditáveis para explicar por que aquele contexto foi priorizado sem deixar anomalias antigas contaminarem demais o baseline.",
       prepare: () => { openInvestigation("KLT-03"); window.setTimeout(openTechnical, 520); },
       target: () => document.querySelector<HTMLElement>(".technicalDetails")
     },
@@ -97,8 +97,8 @@ export function DemoMode() {
     },
     {
       kicker: "5 · MANUTENÇÃO",
-      title: "Uso real ajuda a planejar a parada",
-      narration: "Na KLT-05, o contador de próxima manutenção e alertas de diagnóstico entram como contexto. O Pulso orienta verificação e planejamento, sem transformar telemetria em previsão automática de pane.",
+      title: "Parada vira impacto operacional, não chute financeiro",
+      narration: "Na KLT-05, o Pulso usa o baseline de t/h para estimar capacidade temporariamente indisponível, verifica quanto as outras máquinas absorveram e mostra o impacto residual em toneladas. Sem R$/t válido, ele não inventa custo em dinheiro.",
       prepare: () => { selectAsset("KLT-05"); selectAssist("Manutenção"); },
       target: () => document.querySelector<HTMLElement>(".copilotReading")
     },

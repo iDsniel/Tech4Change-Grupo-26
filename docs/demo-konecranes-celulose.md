@@ -45,44 +45,71 @@ A operação da demo é de celulose:
 - 6 empilhadeiras;
 - capacidade nominal: 16 t por equipamento;
 - cada fardo: 2 t;
-- 2 fardos por movimento produtivo;
-- 4 t por movimento produtivo;
+- 2 fardos por ciclo produtivo;
+- 4 t por ciclo produtivo;
 - turnos A 07:00–15:00, B 15:00–23:00, C 23:00–07:00.
 
-Todos os valores operacionais gerados são **sintéticos**. As premissas acima pertencem ao cenário da demo, não à Konecranes.
+O ciclo operacional sintético usado pelo Pulso representa:
 
-## Como o motor reutiliza a arquitetura do Pulso
+1. aproximação vazia até a carga;
+2. ajuste/engate da carga;
+3. transferência carregada;
+4. posicionamento e depósito.
+
+Esses tempos de fase são uma **camada de processo da demo**, não campos que este projeto atribui à Konecranes. Todos os valores operacionais gerados são sintéticos.
+
+## Como o motor evoluiu
+
+A base da demo agora cobre **seis meses completos**:
+
+- 01/03/2026 a 31/07/2026: baseline de aprendizado;
+- 01/08/2026 a 31/08/2026: holdout de avaliação;
+- 6 equipamentos × 3 turnos × 184 dias = 3.312 registros asset-shift;
+- 2.754 registros ficam no baseline;
+- 558 registros ficam fora do baseline para demonstrar detecção.
+
+Neste MVP, “treino” significa **aprender o comportamento histórico de referência**. Não existe um classificador supervisionado treinado com rótulos humanos.
 
 Fluxo:
 
 ```
-telemetria simulada
-→ normalização por ativo/turno
-→ baseline do mesmo ativo + turno
-→ z-score por métrica
+telemetria OEM-like + contexto de processo
+→ contrato normalizado asset-shift
+→ baseline robusto por ativo + turno
+→ mediana + MAD por métrica
+→ decomposição do ciclo produtivo
 → Isolation Forest como segunda opinião multivariada
-→ Operational Context
+→ contexto de produtividade / segurança / manutenção
 → interpretação em linguagem humana
 → próxima verificação
 → decisão humana
 ```
 
-### Produtividade
+Agosto não é usado para construir o baseline dos insights mostrados na demo.
+
+### Produtividade e ciclo
 
 O motor cruza:
 
 - total load lifted;
-- toneladas por hora em deslocamento;
+- ciclos produtivos concluídos;
+- toneladas por hora de máquina;
+- ciclos por hora de máquina;
+- tempo médio do ciclo;
+- aproximação vazia;
+- coleta/engate;
+- transferência carregada;
+- depósito;
 - ociosidade;
 - deslocamento vazio;
 - combustível por tonelada.
 
-Como cada movimento produtivo do cenário carrega 4 t:
+Como cada ciclo produtivo carrega 4 t:
 
-- movimentos produtivos = toneladas / 4;
-- fardos = toneladas / 2.
+- ciclos produtivos = toneladas concluídas / 4;
+- fardos = toneladas concluídas / 2.
 
-Essas duas conversões são determinísticas a partir da premissa da operação simulada.
+Na demo, os tempos das quatro fases pertencem à camada sintética de processo do Pulso. O ganho conceitual é que o motor deixa de apenas dizer **“produziu menos”** e passa a localizar **qual parte do ciclo mudou mais em relação ao baseline**.
 
 ### Segurança
 
@@ -95,15 +122,25 @@ O motor cruza apenas sinais suportados no cenário Konecranes:
 
 Alta velocidade não é tratada automaticamente como violação. Overload e shocks só aparecem quando registrados na telemetria sintética.
 
-### Manutenção
+### Manutenção e impacto da indisponibilidade
 
 O motor usa:
 
 - next maintenance counter;
 - diagnostic alerts;
-- engine/transmission context.
+- engine/transmission context;
+- downtime sintético do processo;
+- baseline de t/h do mesmo ativo/turno;
+- demanda planejada sintética do turno;
+- throughput observado da frota.
 
-Isso serve para priorizar planejamento e verificação, nunca para declarar pane futura.
+Quando existe indisponibilidade, o Pulso separa:
+
+1. **capacidade temporariamente indisponível** = t/h de baseline × horas paradas;
+2. **capacidade absorvida pela frota**;
+3. **impacto operacional residual em toneladas**.
+
+A demo não converte esse impacto em dinheiro porque não possui um R$/t financeiro válido.
 
 ## Contexto de manutenção da operação
 
@@ -152,3 +189,15 @@ Mostra:
 - diagnostics.
 
 O valor do Pulso está na camada comum de contexto e decisão, não em replicar a mesma lista de métricas em todos os OEMs.
+
+
+## Cenários de avaliação do holdout
+
+O mês de agosto contém cenários determinísticos não usados para formar o baseline apresentado:
+
+- **KLT-02 · contexto de manutenção:** baixa carga não deve virar alerta de produtividade porque o uso está identificado como manutenção;
+- **KLT-03 · gargalo de fluxo:** aumenta principalmente o tempo de aproximação vazia, além de ociosidade/deslocamento vazio; o motor deve localizar essa fase como maior deterioração;
+- **KLT-04 · segurança:** velocidade e faixa alta mudam junto com impactos; a saída deve priorizar revisão sem atribuir culpa;
+- **KLT-05 · indisponibilidade:** parada de 2,5 h com compensação parcial pelas demais máquinas; o Pulso deve separar capacidade indisponível, absorção da frota e impacto operacional residual.
+
+Esses rótulos são usados para **testar a demo**; eles não entram como features do motor.
