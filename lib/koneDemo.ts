@@ -310,7 +310,7 @@ export function generateKoneDemoRecords(): KoneDemoRecord[] {
         const balesMoved = productiveCycles * koneDemoScenario.balesPerLoadedMovement;
         const loadedTravelPct = Math.max(0, 100 - emptyTravelPct);
         const distanceKm = drivingHours * avgSpeedKmh;
-        const plannedDemandT = usageContext === "maintenance"
+        const plannedDemandT = String(usageContext) === "maintenance"
           ? 0
           : Math.max(totalLoadLiftedT, baseDemandCycles * koneDemoScenario.tonnesPerLoadedMovement);
 
